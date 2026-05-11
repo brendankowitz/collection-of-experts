@@ -8,6 +8,7 @@ using AgentHost.Services;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 
+
 namespace AgentHost.MCP;
 
 [McpServerToolType]
@@ -16,6 +17,7 @@ public sealed class ExpertAgentsMcpTools(
     AgentRegistry agentRegistry,
     IAgentTaskStore taskStore,
     IServiceProvider services,
+    IA2AClient a2aClient,
     ILogger<ExpertAgentsMcpTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -229,15 +231,27 @@ public sealed class ExpertAgentsMcpTools(
             return Error($"Agent '{agentId}' not found.");
         }
 
-        var thread = await RunAgentConversationAsync(agent, message);
-        return Serialize(new
+        return await RunAgentViaA2AAsync(agentId, message);
+    }
+
+    private async Task<string> RunAgentViaA2AAsync(string agentId, string message)
+    {
+        var targetUri = new Uri($"inproc://{agentId}");
+        var req = new A2ATaskSendRequest
         {
-            threadId = thread.ThreadId,
-            agentId = agent.AgentId,
-            agentName = agent.Name,
-            message,
-            response = thread.Response
-        });
+            Message = new Message
+            {
+                Role = "user",
+                Parts = [new TextPart { Text = message }]
+            }
+        };
+        var task = await a2aClient.SendTaskAsync(targetUri, req, CancellationToken.None);
+        var response = task.Messages
+            .Where(m => m.Role == "agent")
+            .SelectMany(m => m.Parts.OfType<TextPart>())
+            .Select(tp => tp.Text)
+            .LastOrDefault() ?? "";
+        return Serialize(new { agentId, response });
     }
 
     [McpServerTool(Name = "list_repositories")]

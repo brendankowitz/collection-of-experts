@@ -1,0 +1,61 @@
+# golden-set for microsoft/healthcare-shared-components
+# Each entry has: question, expected_files (list of partial paths that should appear in top results), notes
+items:
+  - question: "What base classes are available for health check integration in the shared library?"
+    expected_files:
+      - "src/Microsoft.Health.Core/Features/Health"
+      - "src/Microsoft.Health.Api/Features/Health"
+    notes: "Health check primitives"
+
+  - question: "How is SQL schema versioning managed across shared components?"
+    expected_files:
+      - "src/Microsoft.Health.SqlServer/Features/Schema/SchemaUpgradeRunner.cs"
+      - "src/Microsoft.Health.SqlServer/Features/Schema/SchemaInitializer.cs"
+    notes: "Schema migration pipeline"
+
+  - question: "Where is the retry policy for transient SQL failures defined?"
+    expected_files:
+      - "src/Microsoft.Health.SqlServer/Features/Storage/SqlTransactionHandler.cs"
+      - "src/Microsoft.Health.SqlServer"
+    notes: "Resilience / retry"
+
+  - question: "How does the shared encryption provider work for at-rest encryption?"
+    expected_files:
+      - "src/Microsoft.Health.Core/Features/Security/HashingKeyProvider.cs"
+      - "src/Microsoft.Health.Encryption"
+    notes: "Encryption shared primitives"
+
+  - question: "What interfaces are provided for authorization and how are policies enforced?"
+    expected_files:
+      - "src/Microsoft.Health.Core/Features/Security/Authorization/IAuthorizationService.cs"
+      - "src/Microsoft.Health.Api/Features/Audit"
+    notes: "Authorization layer"
+
+  - question: "How is Cosmos DB client initialised and configured via shared components?"
+    expected_files:
+      - "src/Microsoft.Health.CosmosDb/Features/Storage/CosmosDbFhirStorageClient.cs"
+      - "src/Microsoft.Health.CosmosDb/Registration"
+    notes: "Cosmos client init"
+
+  - question: "Where is the DICOM-specific job scheduler defined?"
+    expected_files:
+      - "src/Microsoft.Health.Operations"
+      - "src/Microsoft.Health.Operations.Functions"
+    notes: "Job scheduling shared code"
+
+  - question: "How are audit log events structured and dispatched?"
+    expected_files:
+      - "src/Microsoft.Health.Api/Features/Audit/AuditLoggingFilterAttribute.cs"
+      - "src/Microsoft.Health.Core/Features/Audit"
+    notes: "Audit telemetry"
+
+  - question: "What telemetry / metrics abstractions are offered by the shared library?"
+    expected_files:
+      - "src/Microsoft.Health.Core/Features/Telemetry"
+      - "src/Microsoft.Health.Api/Features/Telemetry"
+    notes: "Shared telemetry"
+
+  - question: "How is the Medallion pattern used in the shared query pipeline?"
+    expected_files:
+      - "src/Microsoft.Health.Core"
+    notes: "Mediator / pipeline pattern"

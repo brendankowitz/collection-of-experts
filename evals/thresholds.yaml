@@ -1,0 +1,9 @@
+# Eval thresholds — any metric falling below these causes a non-zero exit code
+RetrievalAtK:
+  K3: 0.40   # at least 40% of golden-set questions must have ≥1 expected file in top-3 results
+  K5: 0.55
+  K10: 0.70
+
+LlmJudge:
+  MinScore: 3        # 1–5 Likert; responses must average ≥ 3
+  MinPassRate: 0.70  # fraction of questions that must score ≥ MinScore

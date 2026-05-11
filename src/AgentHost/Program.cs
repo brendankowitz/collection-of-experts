@@ -4,6 +4,7 @@ using AgentHost.Hubs;
 using AgentHost.Indexing;
 using AgentHost.Llm;
 using AgentHost.MCP;
+using AgentHost.Observability;
 using AgentHost.Orchestration;
 using AgentHost.Repositories;
 using AgentHost.Services;
@@ -46,6 +47,9 @@ public partial class Program
         services.AddA2AClient();
         services.AddSingleton<IExpertAgent, CoordinatorAgent>();
 
+        // Phase 8: Observability (OTel traces + metrics + optional App Insights via OTel)
+        services.AddAgentHostObservability(configuration);
+
         // -- Authentication & Authorization (Phase 7) --
         ConfigureAuth(services, configuration);
 
@@ -80,10 +84,12 @@ public partial class Program
             });
         }
 
-        // -- Application Insights (Phase 7) --
+        // -- Application Insights (Phase 7 legacy path — OTel path preferred, handled in AddAgentHostObservability) --
         var appInsightsConnectionString = configuration["ApplicationInsights:ConnectionString"];
-        if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
+        if (!string.IsNullOrWhiteSpace(appInsightsConnectionString)
+            && string.IsNullOrWhiteSpace(configuration["Observability:ApplicationInsights:ConnectionString"]))
         {
+            // Only register old SDK if the OTel-native AI path is not configured
             services.AddApplicationInsightsTelemetry(options =>
             {
                 options.ConnectionString = appInsightsConnectionString;
@@ -254,6 +260,40 @@ public partial class Program
                 swagger = "/swagger"
             }
         }));
+
+        // Phase 8: Admin usage endpoint (gated by RepositoryAdmin policy)
+        app.MapGet("/admin/usage", (ITokenAccountant accountant) =>
+        {
+            var history = accountant.GetHistory();
+            var byAgent = history
+                .GroupBy(u => new { u.AgentId, u.Provider, u.Model })
+                .Select(g => new
+                {
+                    agentId = g.Key.AgentId,
+                    provider = g.Key.Provider,
+                    model = g.Key.Model,
+                    requests = g.Count(),
+                    inputTokens = g.Sum(u => u.InputTokens),
+                    outputTokens = g.Sum(u => u.OutputTokens),
+                    totalTokens = g.Sum(u => u.InputTokens + u.OutputTokens)
+                });
+
+            return Results.Ok(new
+            {
+                since = "startup",
+                totalRequests = history.Count,
+                totalInputTokens = history.Sum(u => u.InputTokens),
+                totalOutputTokens = history.Sum(u => u.OutputTokens),
+                breakdown = byAgent
+            });
+        })
+        .WithName("AdminUsage")
+        .RequireAuthorization("RepositoryAdmin")
+        .WithOpenApi(op =>
+        {
+            op.Summary = "In-process token usage counters since startup";
+            return op;
+        });
 
         app.Lifetime.ApplicationStarted.Register(() =>
         {

@@ -1,0 +1,230 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --color-bg: #0f172a;
+    --color-bg-secondary: #1e293b;
+    --color-bg-tertiary: #334155;
+    --color-bg-hover: #1a2536;
+    --color-border: #334155;
+    --color-border-subtle: #1e293b;
+    --color-text: #f1f5f9;
+    --color-text-secondary: #94a3b8;
+    --color-text-muted: #64748b;
+    --color-agent-fhir: #10b981;
+    --color-agent-healthcare: #3b82f6;
+    --color-agent-system: #64748b;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #334155;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #475569;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .agent-pill-fhir {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20;
+  }
+
+  .agent-pill-healthcare {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20;
+  }
+
+  .agent-pill-system {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20;
+  }
+
+  .message-user {
+    @apply ml-auto max-w-[85%] sm:max-w-[75%] bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 shadow-lg shadow-blue-900/20;
+  }
+
+  .message-assistant {
+    @apply max-w-[90%] sm:max-w-[80%] bg-slate-800 border border-slate-700/50 rounded-2xl rounded-tl-sm px-5 py-4 shadow-lg;
+  }
+
+  .message-system {
+    @apply max-w-[90%] mx-auto text-center text-sm text-slate-500 bg-slate-800/30 border border-slate-700/20 rounded-xl px-4 py-2;
+  }
+
+  .code-block-wrapper {
+    @apply relative my-3 rounded-xl overflow-hidden border border-slate-700/50 bg-slate-950;
+  }
+
+  .code-block-header {
+    @apply flex items-center justify-between px-4 py-2 bg-slate-900/80 border-b border-slate-700/50;
+  }
+
+  .code-block-title {
+    @apply text-xs text-slate-400 font-mono;
+  }
+
+  .typing-indicator {
+    @apply flex items-center gap-1.5 px-1;
+  }
+
+  .typing-dot {
+    @apply w-2 h-2 rounded-full bg-slate-400;
+  }
+
+  .agent-card {
+    @apply flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 border border-transparent;
+  }
+
+  .agent-card:hover {
+    @apply bg-slate-800/80 border-slate-700/50;
+  }
+
+  .agent-card.active {
+    @apply bg-slate-800 border-slate-600/50;
+  }
+
+  .status-dot {
+    @apply w-2.5 h-2.5 rounded-full border-2 border-slate-900;
+  }
+
+  .status-dot.online {
+    @apply bg-emerald-500;
+  }
+
+  .status-dot.offline {
+    @apply bg-slate-500;
+  }
+
+  .status-dot.busy {
+    @apply bg-amber-500;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .animation-delay-100 {
+    animation-delay: 100ms;
+  }
+
+  .animation-delay-200 {
+    animation-delay: 200ms;
+  }
+
+  .animation-delay-300 {
+    animation-delay: 300ms;
+  }
+}
+
+/* Markdown content styles */
+.prose pre {
+  @apply my-0 rounded-none border-0 bg-transparent;
+}
+
+.prose code {
+  @apply text-sm;
+}
+
+.prose p {
+  @apply mb-3 last:mb-0;
+}
+
+.prose ul {
+  @apply list-disc pl-5 mb-3 space-y-1;
+}
+
+.prose ol {
+  @apply list-decimal pl-5 mb-3 space-y-1;
+}
+
+.prose li {
+  @apply text-slate-300;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  @apply font-semibold text-slate-200 mt-4 mb-2 first:mt-0;
+}
+
+.prose h1 {
+  @apply text-xl;
+}
+
+.prose h2 {
+  @apply text-lg;
+}
+
+.prose h3 {
+  @apply text-base;
+}
+
+.prose a {
+  @apply text-blue-400 hover:text-blue-300 underline underline-offset-2;
+}
+
+.prose blockquote {
+  @apply border-l-2 border-slate-600 pl-4 italic text-slate-400 my-3;
+}
+
+.prose table {
+  @apply w-full text-sm my-3 border-collapse;
+}
+
+.prose th {
+  @apply text-left px-3 py-2 bg-slate-800 font-medium text-slate-300 border-b border-slate-700;
+}
+
+.prose td {
+  @apply px-3 py-2 border-b border-slate-800 text-slate-400;
+}
+
+.prose hr {
+  @apply my-4 border-slate-700/50;
+}
+
+/* Syntax highlighter overrides */
+pre code {
+  @apply font-mono text-sm leading-relaxed;
+}
+
+/* Selection styles */
+::selection {
+  @apply bg-blue-500/30 text-white;
+}
+
+/* Focus visible styles */
+:focus-visible {
+  @apply outline-none ring-2 ring-blue-500/50 ring-offset-2 ring-offset-slate-900;
+}

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>AgentHost.Repositories</RootNamespace>
+    <AssemblyName>AgentHost.Repositories</AssemblyName>
+  </PropertyGroup>
+</Project>

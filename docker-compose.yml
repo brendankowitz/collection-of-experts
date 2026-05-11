@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  agenthost:
+    build:
+      context: .
+      dockerfile: src/AgentHost/Dockerfile
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+    networks:
+      - expert-agents
+
+  webchat:
+    build:
+      context: ./web-chat
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:5000
+    depends_on:
+      - agenthost
+    networks:
+      - expert-agents
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - expert-agents
+
+volumes:
+  qdrant_storage:
+
+networks:
+  expert-agents:
+    driver: bridge

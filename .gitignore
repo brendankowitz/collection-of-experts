@@ -1,0 +1,39 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.dll
+*.pdb
+
+# Node.js
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# VS Code Extension
+out/
+*.vsix
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+qdrant_storage/
+
+# Additional entries
+appsettings.Development.json
+appsettings.*.json
+!appsettings.json
+.env
+.env.*
+*.user
+secrets.json

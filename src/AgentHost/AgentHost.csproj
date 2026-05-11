@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>AgentHost</RootNamespace>
+    <AssemblyName>AgentHost</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentHost.Core\AgentHost.Core.csproj" />
+    <ProjectReference Include="..\AgentHost.Llm\AgentHost.Llm.csproj" />
+    <ProjectReference Include="..\AgentHost.Indexing\AgentHost.Indexing.csproj" />
+    <ProjectReference Include="..\AgentHost.Repositories\AgentHost.Repositories.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,69 @@
+{
+  "name": "expert-agents-vscode",
+  "displayName": "Expert Agents for Healthcare",
+  "description": "Chat with expert agents about Microsoft FHIR Server and Healthcare Shared Components",
+  "version": "0.1.0",
+  "publisher": "expert-agents",
+  "engines": { "vscode": "^1.93.0" },
+  "categories": ["AI", "Chat"],
+  "activationEvents": ["onChatParticipant:expert-agents.fhir-server", "onChatParticipant:expert-agents.healthcare-components"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "expert-agents.fhir-server",
+        "name": "fhir-server",
+        "fullName": "FHIR Server Expert",
+        "description": "Ask me about Microsoft FHIR Server architecture, code, and PR guidance",
+        "isSticky": true,
+        "disambiguation": ["fhir", "fhir server", "microsoft fhir"],
+        "icon": "$(cloud)"
+      },
+      {
+        "id": "expert-agents.healthcare-components",
+        "name": "healthcare-components",
+        "fullName": "Healthcare Components Expert",
+        "description": "Ask me about Microsoft Healthcare Shared Components library",
+        "isSticky": true,
+        "disambiguation": ["healthcare", "shared components", "healthcare components"],
+        "icon": "$(library)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "expert-agents.refreshAgents",
+        "title": "Refresh Expert Agents",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "expert-agents.openSettings",
+        "title": "Open Expert Agents Settings"
+      }
+    ],
+    "configuration": {
+      "title": "Expert Agents",
+      "properties": {
+        "expertAgents.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:5000",
+          "description": "URL of the Expert Agents backend service"
+        },
+        "expertAgents.enableStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming responses"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -108,52 +108,69 @@ public class AuthModeTests
         Assert.NotNull(chatPolicy);
     }
 
-    // -- EntraId HTTP test (uses env var so config is read before DI) ---------
+    // -- EntraId HTTP test ----------------------------------------------------
 
     [Fact]
     public async Task EntraId_Health_Returns200_WithoutToken()
     {
-        Environment.SetEnvironmentVariable("Authentication__Mode", "EntraId");
-        Environment.SetEnvironmentVariable("Authentication__EntraId__Instance", "https://login.microsoftonline.com/");
-        Environment.SetEnvironmentVariable("Authentication__EntraId__TenantId", "test-tenant");
-        Environment.SetEnvironmentVariable("Authentication__EntraId__ClientId", "test-client");
-        Environment.SetEnvironmentVariable("Authentication__EntraId__Audience", "api://test-client");
-        try
-        {
-            await using var factory = new WebApplicationFactory<Program>()
-                .WithWebHostBuilder(b =>
+        // Use ConfigureAppConfiguration (not env vars) to avoid polluting the process-wide
+        // environment for concurrently running test classes (e.g. McpEndpointTests).
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(b =>
+            {
+                b.ConfigureAppConfiguration((_, cfg) =>
                 {
-                    b.ConfigureServices(svc =>
+                    cfg.AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        svc.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
-                        {
-                            o.TokenValidationParameters = new TokenValidationParameters
-                            {
-                                ValidateIssuer = false,
-                                ValidateAudience = false,
-                                ValidateLifetime = false,
-                                ValidateIssuerSigningKey = false,
-                                SignatureValidator = (token, _) => new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token)
-                            };
-                            o.BackchannelHttpHandler = new AlwaysOkHandler();
-                            o.Authority = "https://login.microsoftonline.com/test-tenant/v2.0";
-                            o.RequireHttpsMetadata = false;
-                        });
+                        ["Authentication:Mode"] = "EntraId",
+                        ["Authentication:EntraId:Instance"] = "https://login.microsoftonline.com/",
+                        ["Authentication:EntraId:TenantId"] = "test-tenant",
+                        ["Authentication:EntraId:ClientId"] = "test-client",
+                        ["Authentication:EntraId:Audience"] = "api://test-client"
                     });
                 });
+                b.ConfigureServices(svc =>
+                {
+                    svc.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
+                    {
+                        o.TokenValidationParameters = new TokenValidationParameters
+                        {
+                            ValidateIssuer = false,
+                            ValidateAudience = false,
+                            ValidateLifetime = false,
+                            ValidateIssuerSigningKey = false,
+                            SignatureValidator = (token, _) => new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token)
+                        };
+                        o.BackchannelHttpHandler = new AlwaysOkHandler();
+                        o.Authority = "https://login.microsoftonline.com/test-tenant/v2.0";
+                        o.RequireHttpsMetadata = false;
+                    });
+                });
+            });
 
-            var client = factory.CreateClient();
-            var response = await client.GetAsync("/health");
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("Authentication__Mode", null);
-            Environment.SetEnvironmentVariable("Authentication__EntraId__Instance", null);
-            Environment.SetEnvironmentVariable("Authentication__EntraId__TenantId", null);
-            Environment.SetEnvironmentVariable("Authentication__EntraId__ClientId", null);
-            Environment.SetEnvironmentVariable("Authentication__EntraId__Audience", null);
-        }
+        var client = factory.CreateClient();
+        var response = await client.GetAsync("/health");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // -- Disabled mode: /tasks/send and /hub/chat must not require auth --------
+
+    [Fact]
+    public async Task Disabled_TasksSend_Returns_Non401()
+    {
+        await using var factory = new WebApplicationFactory<Program>();
+        var client = factory.CreateClient();
+
+        // POST /tasks/send with a minimal A2A JSON-RPC body; we expect the server to process it
+        // (even if the payload is invalid) — NOT to return 401/403.
+        var body = new StringContent(
+            """{"jsonrpc":"2.0","id":"1","method":"tasks/send","params":{"id":"t1","message":{"role":"user","parts":[{"type":"text","text":"ping"}]}}}""",
+            System.Text.Encoding.UTF8,
+            "application/json");
+        var response = await client.PostAsync("/tasks/send", body);
+
+        Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     // -- SignalR bad-Redis smoke test -----------------------------------------

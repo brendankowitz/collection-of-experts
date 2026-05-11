@@ -32,13 +32,16 @@ public partial class Program
         services.AddSingleton<MockCodeIndexServiceCompat>();
         services.AddAgentHostLlm(configuration);
         services.AddAgentHostIndexing(configuration);
-
-        services.AddSingleton<FhirServerAgent>();
-        services.AddSingleton<HealthcareComponentsAgent>();
-        services.AddSingleton<IExpertAgent>(sp => sp.GetRequiredService<FhirServerAgent>());
-        services.AddSingleton<IExpertAgent>(sp => sp.GetRequiredService<HealthcareComponentsAgent>());
+        services.AddRepositoryRegistry(configuration);
 
         services.AddSingleton<AgentRegistry>();
+        services.AddHostedService<DynamicAgentRegistry>();
+
+        services.AddAuthentication();
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("RepositoryAdmin", policy => policy.RequireAssertion(_ => true));
+        });
 
         services.AddSignalR(options =>
         {
@@ -109,24 +112,23 @@ public partial class Program
 
         app.UseHttpsRedirection();
         app.UseRouting();
+        app.UseAuthentication();
+        app.UseAuthorization();
 
         app.MapHealthChecks("/health");
         app.MapControllers();
         app.MapA2AEndpoints();
         app.MapMcpEndpoints();
+        app.MapRepositoriesEndpoints();
         app.MapHub<ChatHub>("/hub/chat");
 
         app.MapGet("/", static () => Results.Redirect("/swagger"));
 
-        app.MapGet("/api/info", static () => Results.Ok(new
+        app.MapGet("/api/info", (AgentRegistry registry) => Results.Ok(new
         {
             name = "Expert Agents API",
             version = "1.0.0",
-            agents = new[]
-            {
-                new { id = "fhir-server-expert", name = "FHIR Server Expert", url = "http://localhost:5001" },
-                new { id = "healthcare-components-expert", name = "Healthcare Shared Components Expert", url = "http://localhost:5002" }
-            },
+            agents = registry.GetAllAgents().Select(agent => new { id = agent.AgentId, name = agent.Name, url = "http://localhost:5000" }),
             protocols = new[] { "A2A (JSON-RPC 2.0)", "SignalR", "MCP" },
             endpoints = new
             {
@@ -137,6 +139,7 @@ public partial class Program
                 cancelTask = "/tasks/{taskId}/cancel",
                 chatHub = "/hub/chat",
                 mcpTools = "/mcp/tools",
+                repositories = "/api/repositories",
                 health = "/health",
                 swagger = "/swagger"
             }

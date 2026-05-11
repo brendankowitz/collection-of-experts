@@ -1,5 +1,7 @@
 using AgentHost.Repositories.Memory;
 using AgentHost.Repositories.Options;
+using AgentHost.Repositories.Registry;
+using AgentHost.Repositories.Sources;
 using AgentHost.Repositories.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace AgentHost.Repositories;
 
 /// <summary>
-/// Extension methods for registering all persistence services (task store + agent memory).
+/// Extension methods for registering all persistence and registry services.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
@@ -65,6 +67,40 @@ public static class ServiceCollectionExtensions
         {
             services.AddSingleton<IAgentMemory, InMemoryAgentMemory>();
         }
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers <see cref="IRepositoryRegistry"/> and repository source adapters per the
+    /// <c>Repositories</c> configuration section.
+    /// </summary>
+    public static IServiceCollection AddRepositoryRegistry(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<RepositoriesOptions>(configuration.GetSection(RepositoriesOptions.Section));
+
+        var backend = configuration[$"{RepositoriesOptions.Section}:Backend"] ?? "InMemory";
+
+        if (backend.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddSingleton<PostgresRepositoryRegistry>();
+            services.AddSingleton<IRepositoryRegistry>(sp =>
+            {
+                var reg = sp.GetRequiredService<PostgresRepositoryRegistry>();
+                return reg;
+            });
+        }
+        else
+        {
+            services.AddSingleton<InMemoryRepositoryRegistry>();
+            services.AddSingleton<IRepositoryRegistry>(sp => sp.GetRequiredService<InMemoryRepositoryRegistry>());
+        }
+
+        services.AddSingleton<GitHubRepositorySource>();
+        services.AddHttpClient<AzureDevOpsRepositorySource>();
+        services.AddSingleton<RepositorySourceFactory>();
 
         return services;
     }

@@ -131,6 +131,23 @@ public partial class Program
         app.MapControllers();
         app.MapA2AEndpoints();
         app.MapMcp("/mcp");
+        app.MapGet("/mcp", async (HttpContext context, CancellationToken ct) =>
+        {
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            await context.Response.WriteAsync(": connected\n\n", ct);
+            await context.Response.Body.FlushAsync(ct);
+
+            try
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        })
+        .WithName("McpSse")
+        .ExcludeFromDescription();
         app.MapRepositoriesEndpoints();
         app.MapHub<ChatHub>("/hub/chat");
 

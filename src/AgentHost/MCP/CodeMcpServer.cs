@@ -3,6 +3,7 @@ using System.Text.Json;
 using AgentHost.A2A;
 using AgentHost.Agents;
 using AgentHost.Repositories.Registry;
+using AgentHost.Repositories.Tasks;
 using AgentHost.Services;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
@@ -13,7 +14,7 @@ namespace AgentHost.MCP;
 public sealed class ExpertAgentsMcpTools(
     MockCodeIndexService codeIndex,
     AgentRegistry agentRegistry,
-    AgentTaskStore taskStore,
+    IAgentTaskStore taskStore,
     IServiceProvider services,
     ILogger<ExpertAgentsMcpTools> logger)
 {
@@ -241,17 +242,25 @@ public sealed class ExpertAgentsMcpTools(
 
     [McpServerTool(Name = "list_repositories")]
     [Description("List repositories managed by the platform.")]
-    public string ListRepositories()
+    public async Task<string> ListRepositories()
     {
         var registry = services.GetService<IRepositoryRegistry>();
-        var repositories = registry?.GetAll().ToList() ?? SeedRepositories();
-
-        return Serialize(new
+        if (registry is null)
         {
-            repositories,
-            count = repositories.Count,
-            source = registry is null ? "seed" : "registry"
-        });
+            return Serialize(new { repositories = Array.Empty<object>(), count = 0, source = "empty" });
+        }
+
+        var repos = await registry.ListAsync(enabled: true);
+        var repositories = repos.Select(r => new
+        {
+            id = r.Id,
+            name = r.Name,
+            url = r.CloneUrl,
+            language = r.LanguageHints.Length > 0 ? r.LanguageHints[0] : null,
+            agentPersona = r.AgentPersona
+        }).ToList();
+
+        return Serialize(new { repositories, count = repositories.Count, source = "registry" });
     }
 
     [McpServerTool(Name = "ask_repo_expert")]
@@ -302,7 +311,7 @@ public sealed class ExpertAgentsMcpTools(
             return Error("Parameter 'message' is required.");
         }
 
-        var existingTask = taskStore.GetTask(threadId);
+        var existingTask = await taskStore.GetTaskAsync(threadId);
         var agent = existingTask is not null
             ? agentRegistry.GetAgent(existingTask.AgentId ?? string.Empty)
             : null;
@@ -327,22 +336,6 @@ public sealed class ExpertAgentsMcpTools(
 
     private static string Error(string message)
         => Serialize(new { error = message });
-
-    private static List<RepositoryInfo> SeedRepositories() =>
-    [
-        new RepositoryInfo(
-            Id: "fhir-server",
-            Name: "Microsoft FHIR Server",
-            Description: "Enterprise FHIR server implementation with SQL Server and Cosmos DB backends.",
-            Url: "https://github.com/microsoft/fhir-server",
-            Language: "C#"),
-        new RepositoryInfo(
-            Id: "healthcare-shared-components",
-            Name: "Healthcare Shared Components",
-            Description: "Shared infrastructure and healthcare utilities used across Microsoft healthcare services.",
-            Url: "https://github.com/microsoft/healthcare-shared-components",
-            Language: "C#")
-    ];
 
     private IExpertAgent FindAgentForRepository(string repoId, string question)
     {
@@ -377,17 +370,13 @@ public sealed class ExpertAgentsMcpTools(
 
     private async Task<ConversationResult> RunAgentConversationAsync(IExpertAgent agent, string message, string? threadId = null)
     {
-        var record = string.IsNullOrWhiteSpace(threadId) ? null : taskStore.GetTask(threadId);
+        var record = string.IsNullOrWhiteSpace(threadId) ? null : await taskStore.GetTaskAsync(threadId);
         var createdNewThread = record is null;
         var sessionId = record?.SessionId ?? Guid.NewGuid().ToString("N");
 
         if (record is null)
         {
-            record = taskStore.CreateTask(sessionId, agent.AgentId, new Message
-            {
-                Role = "user",
-                Parts = [new TextPart { Text = message }]
-            });
+            record = await taskStore.CreateTaskAsync(sessionId, agent.AgentId, "user", message);
         }
         else
         {
@@ -400,21 +389,13 @@ public sealed class ExpertAgentsMcpTools(
                     agent.AgentId);
             }
 
-            record.Messages.Add(new Message
-            {
-                Role = "user",
-                Parts = [new TextPart { Text = message }]
-            });
-            taskStore.UpdateTask(record.Id, AgentHost.A2A.TaskStatus.Working);
+            await taskStore.AppendMessageAsync(record.Id, "user", message);
+            await taskStore.UpdateTaskAsync(record.Id, TaskState.Working);
         }
 
-        taskStore.UpdateTask(record.Id, AgentHost.A2A.TaskStatus.Working);
+        await taskStore.UpdateTaskAsync(record.Id, TaskState.Working);
         var response = await agent.ProcessMessageAsync(message, sessionId);
-        taskStore.CompleteTask(record.Id, new Message
-        {
-            Role = "agent",
-            Parts = [new TextPart { Text = response }]
-        });
+        await taskStore.CompleteTaskAsync(record.Id, "agent", response);
 
         return new ConversationResult(record.Id, createdNewThread, response);
     }

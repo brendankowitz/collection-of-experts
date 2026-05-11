@@ -4,6 +4,7 @@ using AgentHost.Hubs;
 using AgentHost.Indexing;
 using AgentHost.Llm;
 using AgentHost.MCP;
+using AgentHost.Repositories;
 using AgentHost.Services;
 
 namespace AgentHost;
@@ -25,7 +26,7 @@ public partial class Program
     private static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<AgentCardProvider>();
-        services.AddSingleton<AgentTaskStore>();
+        services.AddAgentHostPersistence(configuration);
 
         services.AddSingleton<MockCodeIndexService>();
         services.AddSingleton<MockCodeIndexServiceCompat>();

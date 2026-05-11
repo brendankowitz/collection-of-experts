@@ -81,6 +81,12 @@ npm run dev
 
 Opens on `http://localhost:5173`. Talk to expert agents via @-mentions.
 
+### LLM configuration
+
+`AgentHost` now resolves chat providers through `AgentHost.Llm` and `Microsoft.Extensions.AI`.
+By default the app uses the mock provider, but you can configure `Llm` settings in `src/AgentHost/appsettings.json`
+or `appsettings.Development.json` to switch specific agents to OpenAI, Azure OpenAI, Anthropic, or Ollama.
+
 ### 3. Install the VS Code Extension
 
 ```bash

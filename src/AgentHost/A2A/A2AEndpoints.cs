@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentHost.Agents;
+using AgentHost.Repositories.Memory;
+using AgentHost.Repositories.Tasks;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgentHost.A2A;
@@ -11,16 +13,7 @@ namespace AgentHost.A2A;
 /// </summary>
 public static class A2AEndpoints
 {
-    /// <summary>
-    /// Maps all A2A protocol endpoints:
-    /// <list type="bullet">
-    ///   <item><c>GET /.well-known/agent-card.json</c> – agent metadata</item>
-    ///   <item><c>POST /tasks/send</c> – create task (sync response)</item>
-    ///   <item><c>POST /tasks/sendSubscribe</c> – create task (SSE stream)</item>
-    ///   <item><c>GET /tasks/{taskId}</c> – get task status</item>
-    ///   <item><c>POST /tasks/{taskId}/cancel</c> – cancel task</item>
-    /// </list>
-    /// </summary>
+    /// <summary>Maps all A2A protocol endpoints.</summary>
     public static IEndpointRouteBuilder MapA2AEndpoints(this IEndpointRouteBuilder app)
     {
         // GET /.well-known/agent-card.json
@@ -30,7 +23,6 @@ public static class A2AEndpoints
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.AgentCard");
-            // Determine which agent is being requested based on the Host header / port
             var agentId = ResolveAgentId(ctx);
             var card = cardProvider.GetCard(agentId);
 
@@ -54,7 +46,8 @@ public static class A2AEndpoints
         // POST /tasks/send
         app.MapPost("/tasks/send", async (
             [FromBody] SendTaskRequest request,
-            AgentTaskStore taskStore,
+            IAgentTaskStore taskStore,
+            IAgentMemory agentMemory,
             AgentRegistry registry,
             ILoggerFactory loggerFactory) =>
         {
@@ -66,37 +59,35 @@ public static class A2AEndpoints
                 return Results.BadRequest(new { error = $"Agent '{request.AgentId}' not found." });
 
             var sessionId = request.SessionId ?? Guid.NewGuid().ToString("N");
-            var task = taskStore.CreateTask(sessionId, agent.AgentId, request.Message);
+            var userText = request.Message.Parts
+                .OfType<TextPart>()
+                .Select(tp => tp.Text)
+                .FirstOrDefault() ?? "";
 
-            // Update status to Working while processing
-            taskStore.UpdateTask(task.Id, TaskStatus.Working);
+            var record = await taskStore.CreateTaskAsync(sessionId, agent.AgentId, request.Message.Role, userText);
+            await taskStore.UpdateTaskAsync(record.Id, TaskState.Working);
+            await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "user", userText);
 
             try
             {
-                var userText = request.Message.Parts
-                    .OfType<TextPart>()
-                    .Select(tp => tp.Text)
-                    .FirstOrDefault() ?? "";
-
                 var responseText = await agent.ProcessMessageAsync(userText, sessionId);
 
-                var responseMessage = new Message
+                await taskStore.CompleteTaskAsync(record.Id, "agent", responseText);
+                await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "agent", responseText);
+
+                _ = Task.Run(async () =>
                 {
-                    Role = "agent",
-                    Parts =
-                    [
-                        new TextPart { Text = responseText }
-                    ]
-                };
+                    try { await agentMemory.SummarizeAndPersistAsync(agent.AgentId, sessionId); }
+                    catch (Exception ex) { logger.LogError(ex, "SummarizeAndPersistAsync failed for task {TaskId}", record.Id); }
+                });
 
-                taskStore.CompleteTask(task.Id, responseMessage);
-
-                return Results.Ok(new TaskResponse { Task = taskStore.GetTask(task.Id)! });
+                var completed = await taskStore.GetTaskAsync(record.Id);
+                return Results.Ok(new TaskResponse { Task = ToAgentTask(completed ?? record) });
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Task {TaskId} failed", task.Id);
-                taskStore.UpdateTask(task.Id, TaskStatus.Failed, ex.Message);
+                logger.LogError(ex, "Task {TaskId} failed", record.Id);
+                await taskStore.UpdateTaskAsync(record.Id, TaskState.Failed, ex.Message);
                 return Results.StatusCode(500);
             }
         })
@@ -111,7 +102,8 @@ public static class A2AEndpoints
         // POST /tasks/sendSubscribe
         app.MapPost("/tasks/sendSubscribe", async (
             [FromBody] SendTaskRequest request,
-            AgentTaskStore taskStore,
+            IAgentTaskStore taskStore,
+            IAgentMemory agentMemory,
             AgentRegistry registry,
             HttpContext ctx,
             ILoggerFactory loggerFactory,
@@ -129,7 +121,12 @@ public static class A2AEndpoints
             }
 
             var sessionId = request.SessionId ?? Guid.NewGuid().ToString("N");
-            var task = taskStore.CreateTask(sessionId, agent.AgentId, request.Message);
+            var userText = request.Message.Parts
+                .OfType<TextPart>()
+                .Select(tp => tp.Text)
+                .FirstOrDefault() ?? "";
+
+            var record = await taskStore.CreateTaskAsync(sessionId, agent.AgentId, request.Message.Role, userText, ct);
 
             ctx.Response.ContentType = "text/event-stream";
             ctx.Response.Headers.CacheControl = "no-cache";
@@ -137,34 +134,40 @@ public static class A2AEndpoints
 
             await using var writer = new StreamWriter(ctx.Response.Body);
 
-            // Send initial status
             await WriteSseEventAsync(writer, new TaskEvent { Event = "status", Status = TaskStatus.Working }, ct);
+            await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "user", userText, ct);
 
+            var collectedResponse = new System.Text.StringBuilder();
             try
             {
-                var userText = request.Message.Parts
-                    .OfType<TextPart>()
-                    .Select(tp => tp.Text)
-                    .FirstOrDefault() ?? "";
-
                 await foreach (var chunk in agent.ProcessMessageStreamAsync(userText, sessionId, ct))
                 {
+                    collectedResponse.Append(chunk);
                     await WriteSseEventAsync(writer, new TaskEvent { Event = "text", Text = chunk }, ct);
                 }
 
-                taskStore.UpdateTask(task.Id, TaskStatus.Completed);
+                await taskStore.UpdateTaskAsync(record.Id, TaskState.Completed, ct: ct);
                 await WriteSseEventAsync(writer, new TaskEvent { Event = "status", Status = TaskStatus.Completed }, ct);
                 await WriteSseEventAsync(writer, new TaskEvent { Event = "done" }, ct);
+
+                var agentResponse = collectedResponse.ToString();
+                await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "agent", agentResponse, ct);
+
+                _ = Task.Run(async () =>
+                {
+                    try { await agentMemory.SummarizeAndPersistAsync(agent.AgentId, sessionId); }
+                    catch (Exception ex) { logger.LogError(ex, "SummarizeAndPersistAsync failed for task {TaskId}", record.Id); }
+                });
             }
             catch (OperationCanceledException)
             {
-                taskStore.UpdateTask(task.Id, TaskStatus.Canceled);
+                await taskStore.UpdateTaskAsync(record.Id, TaskState.Canceled, ct: ct);
                 await WriteSseEventAsync(writer, new TaskEvent { Event = "status", Status = TaskStatus.Canceled }, ct);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Streaming task {TaskId} failed", task.Id);
-                taskStore.UpdateTask(task.Id, TaskStatus.Failed, ex.Message);
+                logger.LogError(ex, "Streaming task {TaskId} failed", record.Id);
+                await taskStore.UpdateTaskAsync(record.Id, TaskState.Failed, ex.Message, ct);
                 await WriteSseEventAsync(writer, new TaskEvent { Event = "error", Error = ex.Message }, ct);
             }
 
@@ -179,19 +182,19 @@ public static class A2AEndpoints
         });
 
         // GET /tasks/{taskId}
-        app.MapGet("/tasks/{taskId}", (
+        app.MapGet("/tasks/{taskId}", async (
             string taskId,
-            AgentTaskStore taskStore,
+            IAgentTaskStore taskStore,
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.GetTask");
             logger.LogInformation("Retrieving task {TaskId}", taskId);
 
-            var task = taskStore.GetTask(taskId);
-            if (task is null)
+            var record = await taskStore.GetTaskAsync(taskId);
+            if (record is null)
                 return Results.NotFound(new { error = $"Task '{taskId}' not found or expired." });
 
-            return Results.Ok(new TaskResponse { Task = task });
+            return Results.Ok(new TaskResponse { Task = ToAgentTask(record) });
         })
         .WithName("GetTask")
         .WithOpenApi(operation =>
@@ -202,15 +205,15 @@ public static class A2AEndpoints
         });
 
         // POST /tasks/{taskId}/cancel
-        app.MapPost("/tasks/{taskId}/cancel", (
+        app.MapPost("/tasks/{taskId}/cancel", async (
             string taskId,
-            AgentTaskStore taskStore,
+            IAgentTaskStore taskStore,
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.CancelTask");
             logger.LogInformation("Cancelling task {TaskId}", taskId);
 
-            var cancelled = taskStore.CancelTask(taskId);
+            var cancelled = await taskStore.CancelTaskAsync(taskId);
             if (!cancelled)
                 return Results.BadRequest(new { error = $"Task '{taskId}' not found or already in a terminal state." });
 
@@ -227,26 +230,49 @@ public static class A2AEndpoints
         return app;
     }
 
-    /// <summary>
-    /// Resolves the agent ID from the HTTP context (Host header / port).
-    /// </summary>
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>Maps a repository <see cref="TaskRecord"/> to the A2A protocol <see cref="AgentTask"/>.</summary>
+    private static AgentTask ToAgentTask(TaskRecord r) => new()
+    {
+        Id = r.Id,
+        AgentId = r.AgentId,
+        SessionId = r.SessionId,
+        Status = r.State switch
+        {
+            TaskState.Submitted     => TaskStatus.Submitted,
+            TaskState.Working       => TaskStatus.Working,
+            TaskState.InputRequired => TaskStatus.InputRequired,
+            TaskState.Completed     => TaskStatus.Completed,
+            TaskState.Failed        => TaskStatus.Failed,
+            TaskState.Canceled      => TaskStatus.Canceled,
+            _                       => TaskStatus.Failed
+        },
+        Messages = r.Messages
+            .Select(m => new Message
+            {
+                Role = m.Role,
+                Parts = [new TextPart { Text = m.Content }]
+            })
+            .ToList(),
+        CreatedAt = r.CreatedAt,
+        UpdatedAt = r.UpdatedAt,
+        ErrorMessage = r.ErrorMessage
+    };
+
     private static string ResolveAgentId(HttpContext ctx)
     {
         var host = ctx.Request.Host.ToString();
-
         return host switch
         {
             var h when h.Contains("5001") => "fhir-server-expert",
             var h when h.Contains("5002") => "healthcare-components-expert",
             _ => ctx.Request.Query.TryGetValue("agentId", out var agentId)
                 ? agentId.ToString()
-                : "fhir-server-expert" // default
+                : "fhir-server-expert"
         };
     }
 
-    /// <summary>
-    /// Writes a single SSE event to the response stream.
-    /// </summary>
     private static async Task WriteSseEventAsync(StreamWriter writer, TaskEvent evt, CancellationToken ct)
     {
         var json = JsonSerializer.Serialize(evt);

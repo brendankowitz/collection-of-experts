@@ -20,5 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentHost\AgentHost.csproj" />
     <ProjectReference Include="..\..\src\AgentHost.Llm\AgentHost.Llm.csproj" />
+    <ProjectReference Include="..\..\src\AgentHost.Repositories\AgentHost.Repositories.csproj" />
   </ItemGroup>
 </Project>

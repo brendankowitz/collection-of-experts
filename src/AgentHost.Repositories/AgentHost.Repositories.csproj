@@ -3,5 +3,18 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>AgentHost.Repositories</RootNamespace>
     <AssemblyName>AgentHost.Repositories</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>1591</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <PackageReference Include="Qdrant.Client" Version="1.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentHost.Indexing\AgentHost.Indexing.csproj" />
+    <ProjectReference Include="..\AgentHost.Llm\AgentHost.Llm.csproj" />
+  </ItemGroup>
 </Project>

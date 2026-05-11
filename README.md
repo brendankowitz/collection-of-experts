@@ -68,7 +68,7 @@ dotnet run
 The AgentHost starts on `http://localhost:5000` with:
 - A2A endpoints at `/.well-known/agent-card.json`, `/tasks/*`
 - SignalR hub at `/hub/chat`
-- MCP tools at `/mcp/tools`
+- MCP endpoints at `/mcp` and `/mcp/health`
 - Swagger UI at `/swagger`
 
 ### 2. Run the Web Chat
@@ -161,18 +161,21 @@ Submitted -> Working -> Completed
 
 ## MCP (Model Context Protocol) Tools
 
-The AgentHost exposes MCP-compatible tools for external integration:
+The AgentHost exposes nine MCP-compatible tools for external integration over `POST /mcp` and `GET /mcp`:
 
 | Tool | Description |
 |------|-------------|
-| `search_code` | Semantic search across indexed repositories |
-| `get_file_content` | Retrieve specific file content by path |
-| `explain_architecture` | Get component architecture overview |
-| `create_pr` | PR creation guidance with branch naming |
-| `list_agents` | Discover available expert agents |
-| `ask_agent` | Send a question to a specific agent |
+| `search_code` | Search indexed repositories for matching code snippets |
+| `get_file_content` | Retrieve full file content from a repository |
+| `explain_architecture` | Route architecture questions to the best expert |
+| `create_pr` | Return repository-specific pull request guidance |
+| `list_agents` | Discover available expert agents and skills |
+| `ask_agent` | Send a question to a specific expert agent |
+| `list_repositories` | List managed repositories from the registry or seed data |
+| `ask_repo_expert` | Ask the expert that owns a repository |
+| `submit_followup` | Continue an existing MCP conversation thread |
 
-Connect to MCP tools via HTTP POST to `/mcp/tools/call` with standard JSON-RPC 2.0 envelope.
+Initialize via JSON-RPC 2.0 on `/mcp`, call `tools/list`, then invoke tools with `tools/call`.
 
 ## VS Code Extension
 
@@ -187,26 +190,55 @@ Features:
 - Works offline with mock responses when backend is unavailable
 - Configurable backend URL via settings
 
-## Claude Code Integration
+## Connecting Claude Code via MCP
 
-To connect Claude Code to the expert agents via MCP:
+Claude Code can connect to Expert Agents in two ways:
 
-```bash
-# Add MCP server
-claude mcp add expert-agents \
-  --transport http \
-  --url http://localhost:5000/mcp
+1. **HTTP transport**
+   ```bash
+   claude mcp add expert-agents \
+     --transport http \
+     --url http://localhost:5000/mcp
+   ```
+2. **stdio bridge transport**
+   ```bash
+   claude mcp add expert-agents \
+     --transport stdio \
+     --command "experts-mcp" \
+     --args "--url" \
+     --args "http://localhost:5000/mcp"
+   ```
 
-# Or use stdio transport with a bridge
-claude mcp add expert-agents \
-  --transport stdio \
-  --command "dotnet run --project /path/to/AgentHost"
+Available tools: `search_code`, `get_file_content`, `explain_architecture`, `create_pr`, `list_agents`, `ask_agent`, `list_repositories`, `ask_repo_expert`, `submit_followup`.
+
+Example `search_code` payload:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "search_code",
+    "arguments": {
+      "repo": "fhir-server",
+      "query": "export"
+    }
+  }
+}
 ```
 
-Then in Claude Code:
-- Use tools like `search_code`, `ask_agent`, `explain_architecture`
-- Ask "@fhir-server how does custom search work?"
-- The agent context is automatically injected via MCP
+Example `list_agents` payload:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "list_agents",
+    "arguments": {}
+  }
+}
+```
 
 ## Project Structure
 

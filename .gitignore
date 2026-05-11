@@ -37,3 +37,5 @@ appsettings.*.json
 .env.*
 *.user
 secrets.json
+
+pack/

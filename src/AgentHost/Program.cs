@@ -1,6 +1,7 @@
 using AgentHost.A2A;
 using AgentHost.Agents;
 using AgentHost.Hubs;
+using AgentHost.Llm;
 using AgentHost.MCP;
 using AgentHost.Services;
 
@@ -39,6 +40,7 @@ public partial class Program
 
         // Mock code index (shared by agents)
         services.AddSingleton<MockCodeIndexService>();
+        services.AddAgentHostLlm(configuration);
 
         // Expert agents
         services.AddSingleton<FhirServerAgent>();

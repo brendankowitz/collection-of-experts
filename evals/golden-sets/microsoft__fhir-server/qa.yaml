@@ -1,0 +1,73 @@
+# golden-set for microsoft/fhir-server
+# Each entry has: question, expected_files (list of partial paths that should appear in top results), notes
+items:
+  - question: "How does the FHIR server handle R4 resource validation?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Shared.Core/Features/Validation"
+      - "src/Microsoft.Health.Fhir.Core/Features/Validation/FhirRequestContextValidator.cs"
+      - "src/Microsoft.Health.Fhir.Shared.Api/Modules/ValidationModule.cs"
+    notes: "Validation pipeline entry point"
+
+  - question: "Where is the search parameter definition stored and how is indexing triggered?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Search/SearchParameterDefinitionManager.cs"
+      - "src/Microsoft.Health.Fhir.Core/Features/Search/Registry/SearchParameterStatusManager.cs"
+    notes: "Search parameter lifecycle"
+
+  - question: "How is authentication handled for SMART on FHIR?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Api/Features/Filters/FhirAuthorizationFilterAttribute.cs"
+      - "src/Microsoft.Health.Fhir.Core/Features/Security"
+    notes: "SMART auth flows"
+
+  - question: "What storage backends are supported and where is the storage abstraction defined?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Persistence/IFhirDataStore.cs"
+      - "src/Microsoft.Health.Fhir.SqlServer"
+      - "src/Microsoft.Health.Fhir.CosmosDb"
+    notes: "Multi-backend persistence"
+
+  - question: "How does the server handle $export bulk export operations?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Operations/Export"
+    notes: "Bulk export workflow"
+
+  - question: "Where is transaction bundle handling implemented?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Resources/Bundle/BundleHandler.cs"
+    notes: "Bundle processing"
+
+  - question: "How does the search result sorting work for _sort parameter?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Search/Expressions/Parsers"
+      - "src/Microsoft.Health.Fhir.SqlServer/Features/Search/SqlServerFhirReindexJob.cs"
+    notes: "Sort implementation"
+
+  - question: "What is the purpose of FhirRequestContext and how is it propagated?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Context/FhirRequestContext.cs"
+      - "src/Microsoft.Health.Fhir.Core/Features/Context/IFhirRequestContextAccessor.cs"
+    notes: "Context propagation"
+
+  - question: "How does the server implement conditional create (If-None-Exist)?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Resources/Upsert"
+    notes: "Conditional operations"
+
+  - question: "Where is the Capability Statement / conformance endpoint generated?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Shared.Api/Controllers/FhirController.cs"
+      - "src/Microsoft.Health.Fhir.Core/Features/Conformance"
+    notes: "Conformance/metadata endpoint"
+
+  - question: "How are deleted resources handled — soft delete vs hard delete?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Resources/Delete"
+      - "src/Microsoft.Health.Fhir.SqlServer/Features/Storage/SqlServerFhirDataStore.cs"
+    notes: "Delete behaviour"
+
+  - question: "How does the server support versioning of FHIR resources (history endpoint)?"
+    expected_files:
+      - "src/Microsoft.Health.Fhir.Core/Features/Resources/Get/GetResourceHandler.cs"
+      - "src/Microsoft.Health.Fhir.SqlServer/Features/Storage"
+    notes: "History support"

@@ -1,0 +1,101 @@
+name: Nightly Evals
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC every night
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  eval:
+    name: Retrieval + LLM-Judge Evals
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build AgentHost
+        run: dotnet build src/AgentHost/AgentHost.csproj -c Release
+
+      - name: Start AgentHost (mock provider)
+        run: |
+          dotnet run --project src/AgentHost/AgentHost.csproj -c Release \
+            --Llm:DefaultProvider=Mock \
+            --Observability:Otel:Enabled=false &
+          echo "Waiting for AgentHost to start..."
+          timeout 30 bash -c 'until curl -sf http://localhost:5000/health; do sleep 2; done'
+        env:
+          ASPNETCORE_URLS: http://localhost:5000
+
+      - name: Build EvalRunner
+        run: dotnet build evals/runner/EvalRunner.csproj -c Release
+
+      - name: Run evals — fhir-server
+        id: eval_fhir
+        run: |
+          dotnet run --project evals/runner/EvalRunner.csproj -c Release -- \
+            --golden-set evals/golden-sets/microsoft__fhir-server/qa.yaml \
+            --mock-provider \
+            --thresholds evals/thresholds.yaml
+        continue-on-error: true
+
+      - name: Run evals — healthcare-shared-components
+        id: eval_hsc
+        run: |
+          dotnet run --project evals/runner/EvalRunner.csproj -c Release -- \
+            --golden-set evals/golden-sets/microsoft__healthcare-shared-components/qa.yaml \
+            --mock-provider \
+            --thresholds evals/thresholds.yaml
+        continue-on-error: true
+
+      - name: Upload eval reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports-${{ github.run_id }}
+          path: evals/reports/**
+          retention-days: 30
+
+      - name: Open issue on regression
+        if: steps.eval_fhir.outcome == 'failure' || steps.eval_hsc.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failedSets = [];
+            if ('${{ steps.eval_fhir.outcome }}' === 'failure') failedSets.push('microsoft/fhir-server');
+            if ('${{ steps.eval_hsc.outcome }}' === 'failure') failedSets.push('microsoft/healthcare-shared-components');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Eval Regression] Nightly eval failed — ${failedSets.join(', ')}`,
+              body: [
+                '## Eval Regression Detected',
+                '',
+                `**Date**: ${new Date().toISOString()}`,
+                `**Workflow run**: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                '',
+                '**Failed golden sets:**',
+                ...failedSets.map(s => `- ${s}`),
+                '',
+                'Please check the uploaded eval reports artifact for details.',
+                '',
+                'See [evals/README.md](evals/README.md) for how to run evals locally.'
+              ].join('\n'),
+              labels: ['eval-regression', 'quality']
+            });
+
+      - name: Fail if any eval failed
+        if: steps.eval_fhir.outcome == 'failure' || steps.eval_hsc.outcome == 'failure'
+        run: exit 1

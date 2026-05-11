@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # .NET NuGet packages
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - dotnet
+
+  # npm — web-chat
+  - package-ecosystem: npm
+    directory: "/web-chat"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - javascript
+
+  # npm — vscode-extension
+  - package-ecosystem: npm
+    directory: "/vscode-extension"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - javascript
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - github-actions

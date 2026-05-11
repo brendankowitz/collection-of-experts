@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentHost.Agents;
+using AgentHost.Observability;
 using AgentHost.Orchestration;
 using AgentHost.Repositories.Memory;
 using AgentHost.Repositories.Tasks;
@@ -84,12 +86,28 @@ public static class A2AEndpoints
             await taskStore.UpdateTaskAsync(record.Id, TaskState.Working);
             await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "user", userText);
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var activity = AgentHostActivitySource.Source.StartActivity(
+                "a2a.task.send",
+                ActivityKind.Server);
+            activity?.SetTag("agent.id", agent.AgentId);
+            activity?.SetTag("task.id", record.Id);
+            activity?.SetTag("session.id", sessionId);
+            if (A2ACallContext.Current is { } ctx2)
+                activity?.SetTag("a2a.call.depth", ctx2.Depth);
+
+            AgentHostMetrics.TaskCount.Add(1, new TagList { { "agent", agent.AgentId }, { "operation", "send" } });
+
             try
             {
                 var responseText = await agent.ProcessMessageAsync(userText, sessionId);
 
                 await taskStore.CompleteTaskAsync(record.Id, "agent", responseText);
                 await agentMemory.RecordTurnAsync(agent.AgentId, sessionId, "agent", responseText);
+
+                sw.Stop();
+                AgentHostMetrics.TaskDuration.Record(sw.Elapsed.TotalMilliseconds,
+                    new TagList { { "agent", agent.AgentId }, { "status", "completed" } });
 
                 _ = Task.Run(async () =>
                 {
@@ -102,6 +120,10 @@ public static class A2AEndpoints
             }
             catch (Exception ex)
             {
+                sw.Stop();
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                AgentHostMetrics.TaskDuration.Record(sw.Elapsed.TotalMilliseconds,
+                    new TagList { { "agent", agent.AgentId }, { "status", "failed" } });
                 logger.LogError(ex, "Task {TaskId} failed", record.Id);
                 await taskStore.UpdateTaskAsync(record.Id, TaskState.Failed, ex.Message);
                 return Results.StatusCode(500);

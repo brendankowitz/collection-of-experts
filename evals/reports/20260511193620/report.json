@@ -1,0 +1,133 @@
+{
+  "timestamp": "20260511193620",
+  "goldenSet": "evals/golden-sets/microsoft__fhir-server/qa.yaml",
+  "metrics": {
+    "avgR3": 0,
+    "avgR5": 0,
+    "avgR10": 0,
+    "avgScore": 0,
+    "passRate": 0
+  },
+  "results": [
+    {
+      "Question": "How does the FHIR server handle R4 resource validation?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "Where is the search parameter definition stored and how is indexing triggered?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How is authentication handled for SMART on FHIR?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "What storage backends are supported and where is the storage abstraction defined?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How does the server handle $export bulk export operations?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "Where is transaction bundle handling implemented?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How does the search result sorting work for _sort parameter?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "What is the purpose of FhirRequestContext and how is it propagated?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How does the server implement conditional create (If-None-Exist)?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "Where is the Capability Statement / conformance endpoint generated?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How are deleted resources handled \u2014 soft delete vs hard delete?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    },
+    {
+      "Question": "How does the server support versioning of FHIR resources (history endpoint)?",
+      "ResponseText": null,
+      "RetrievalAt3": 0,
+      "RetrievalAt5": 0,
+      "RetrievalAt10": 0,
+      "LlmScore": 0,
+      "Passed": false,
+      "FailReason": "No connection could be made because the target machine actively refused it. (localhost:5000)"
+    }
+  ]
+}

@@ -11,6 +11,17 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
+      - Indexing__Qdrant__Host=qdrant
+      - Indexing__Qdrant__GrpcPort=6334
+      - Indexing__Postgres__ConnectionString=Host=postgres;Database=experts;Username=experts;Password=experts
+      - Indexing__RepoCacheDir=/var/cache/agenthost/repos
+    volumes:
+      - clone-cache:/var/cache/agenthost/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     networks:
       - expert-agents
 
@@ -37,8 +48,28 @@ services:
     networks:
       - expert-agents
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: experts
+      POSTGRES_PASSWORD: experts
+      POSTGRES_DB: experts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U experts -d experts"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - expert-agents
+
 volumes:
   qdrant_storage:
+  postgres_data:
+  clone-cache:
 
 networks:
   expert-agents:

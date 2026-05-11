@@ -6,7 +6,7 @@ namespace AgentHost.Services;
 /// Mock in-memory code index that maps file paths to content snippets
 /// for both demo repositories. Provides simple keyword-based search.
 /// </summary>
-public sealed class MockCodeIndexService
+public class MockCodeIndexService
 {
     private readonly ConcurrentDictionary<string, Dictionary<string, string>> _repos = new(StringComparer.OrdinalIgnoreCase);
 

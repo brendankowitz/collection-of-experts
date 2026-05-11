@@ -319,3 +319,43 @@ dotnet user-secrets set "AzureOpenAI:ApiKey" "<your-key>"
 In production, secrets are provided via **ACA Key Vault secret bindings** (to be wired in Phase 7). No secrets should be committed to source control. The `appsettings.Development.json` file is git-ignored.
 
 **Never commit API keys, connection strings, or other secrets to this repository.**
+
+## LLM Configuration
+
+Expert Agents uses `Microsoft.Extensions.AI` for provider-agnostic LLM access. Configure via `appsettings.json` (`Llm` section) or user secrets.
+
+### Default (Mock)
+No configuration needed. The system uses a built-in mock LLM for development/testing.
+
+### Azure OpenAI
+```bash
+dotnet user-secrets set "Llm:DefaultProvider" "AzureOpenAI" --project src/AgentHost
+dotnet user-secrets set "Llm:Providers:AzureOpenAI:Endpoint" "https://<resource>.openai.azure.com/" --project src/AgentHost
+dotnet user-secrets set "Llm:Providers:AzureOpenAI:ApiKey" "<your-key>" --project src/AgentHost
+```
+
+### OpenAI
+```bash
+dotnet user-secrets set "Llm:DefaultProvider" "OpenAI" --project src/AgentHost
+dotnet user-secrets set "Llm:Providers:OpenAI:ApiKey" "sk-..." --project src/AgentHost
+```
+
+### Anthropic
+```bash
+dotnet user-secrets set "Llm:DefaultProvider" "Anthropic" --project src/AgentHost
+dotnet user-secrets set "Llm:Providers:Anthropic:ApiKey" "sk-ant-..." --project src/AgentHost
+```
+
+### Ollama (local)
+```bash
+dotnet user-secrets set "Llm:DefaultProvider" "Ollama" --project src/AgentHost
+dotnet user-secrets set "Llm:Providers:Ollama:Endpoint" "http://localhost:11434" --project src/AgentHost
+```
+
+### Per-agent overrides
+Add to `Llm:AgentOverrides` to route a specific agent to a different provider:
+```json
+"AgentOverrides": {
+  "fhir-server-expert": { "Provider": "Anthropic", "Model": "claude-sonnet-4-5" }
+}
+```

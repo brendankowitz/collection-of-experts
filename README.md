@@ -391,3 +391,72 @@ Add to `Llm:AgentOverrides` to route a specific agent to a different provider:
   "fhir-server-expert": { "Provider": "Anthropic", "Model": "claude-sonnet-4-5" }
 }
 ```
+
+
+---
+
+## Deployment
+
+### Local (docker compose)
+
+Start the full stack (API, web-chat, Postgres, Qdrant, Redis) with a single command:
+
+```bash
+# 1. Copy the example env file and fill in secrets
+cp .env.example .env
+
+# 2. Start all services
+docker compose up --build
+
+# 3. Open in browser
+#   Web chat:  http://localhost:5173
+#   Swagger:   http://localhost:5000/swagger
+#   Health:    http://localhost:5000/health
+```
+
+**Services started:**
+
+| Service     | URL                         | Notes                        |
+|-------------|-----------------------------|------------------------------|
+| `agenthost` | http://localhost:5000       | ASP.NET Core backend         |
+| `webchat`   | http://localhost:5173       | React + Vite (nginx)         |
+| `postgres`  | localhost:5432              | Metadata + tasks + memory    |
+| `qdrant`    | http://localhost:6333       | Vector search                |
+| `redis`     | localhost:6379              | SignalR backplane (optional) |
+
+All secrets (LLM keys, Postgres password, etc.) default to mock/dev values — no real
+credentials needed for local development. See `.env.example` for the full variable list.
+
+### Azure Container Apps (azd up)
+
+Deploy to Azure with the [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/):
+
+```bash
+azd auth login
+azd up
+```
+
+This provisions a Container Apps environment, Container Registry, Postgres Flexible
+Server, Key Vault, Application Insights, and both container apps. See
+[infra/README.md](infra/README.md) for the full walkthrough including Entra ID
+app registrations and teardown steps.
+
+---
+
+## Configuration Reference
+
+| Section | Key | Default | Description |
+|---------|-----|---------|-------------|
+| `Authentication` | `Mode` | `Disabled` | Auth mode: `Disabled` or `EntraId` |
+| `Authentication:EntraId` | `TenantId` | — | Entra ID tenant GUID |
+| `Authentication:EntraId` | `ClientId` | — | API app registration client ID |
+| `Authentication:EntraId` | `Audience` | — | Token audience (`api://<clientId>`) |
+| `Authentication:EntraId` | `RequiredScope` | `Experts.Access` | Required OAuth2 scope |
+| `SignalR:Redis` | `ConnectionString` | — | Redis connection string for backplane |
+| `ApplicationInsights` | `ConnectionString` | — | App Insights connection string |
+| `AzureOpenAI` | `Endpoint` | — | Azure OpenAI endpoint URL |
+| `AzureOpenAI` | `ApiKey` | — | Azure OpenAI API key |
+| `AzureOpenAI` | `DeploymentName` | `gpt-4o` | Chat completion deployment |
+| `Anthropic` | `ApiKey` | — | Anthropic API key (for Claude models) |
+| `Qdrant` | `Url` | `http://localhost:6333` | Qdrant vector DB URL |
+| `ConnectionStrings` | `Postgres` | — | Postgres connection string |

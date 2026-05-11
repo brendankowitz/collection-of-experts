@@ -11,6 +11,29 @@ import { URL } from 'node:url';
 import type { ChatRequest, ChatResponse, AgentInfo } from './types';
 
 /**
+ * Acquires a Microsoft bearer token via VS Code's built-in auth provider.
+ * Returns undefined when authMode is 'disabled' or the session cannot be obtained.
+ */
+export async function acquireVsCodeToken(): Promise<string | undefined> {
+  try {
+    // Dynamically import vscode so this module can be unit-tested outside the extension host.
+    const vscode = await import('vscode');
+    const config = vscode.workspace.getConfiguration('expertAgents');
+    const authMode: string = config.get('authMode', 'disabled');
+    if (authMode !== 'entra-id') return undefined;
+
+    const session = await vscode.authentication.getSession(
+      'microsoft',
+      ['https://graph.microsoft.com/.default'],
+      { createIfNone: true }
+    );
+    return session?.accessToken;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Options for the AgentClient.
  */
 export interface AgentClientOptions {
@@ -18,6 +41,8 @@ export interface AgentClientOptions {
   baseUrl: string;
   /** Request timeout in milliseconds. */
   timeoutMs?: number;
+  /** Bearer token for authenticated requests (from Entra ID). */
+  bearerToken?: string;
 }
 
 /**
@@ -49,10 +74,12 @@ export class AgentClientError extends Error {
 export class AgentClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly bearerToken: string | undefined;
 
   constructor(options: AgentClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.timeoutMs = options.timeoutMs ?? 30000;
+    this.bearerToken = options.bearerToken;
   }
 
   /* ────────────────────────── Public API ────────────────────────── */
@@ -179,6 +206,7 @@ export class AgentClient {
         headers: {
           'Content-Type': 'application/json',
           ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}),
+          ...(this.bearerToken ? { 'Authorization': `Bearer ${this.bearerToken}` } : {}),
           ...extraHeaders,
         },
         timeout: this.timeoutMs,

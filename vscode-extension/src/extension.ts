@@ -11,7 +11,7 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentClient } from './agentClient';
+import { AgentClient, acquireVsCodeToken } from './agentClient';
 import {
   createFhirServerParticipantHandler,
   fhirFollowUpQuestions,
@@ -32,7 +32,7 @@ const disposables: vscode.Disposable[] = [];
  *
  * @param context - The extension context for registering disposables
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Expert Agents');
   outputChannel.appendLine('Expert Agents: Activating...');
 
@@ -40,12 +40,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('expertAgents');
   const backendUrl: string = config.get<string>('backendUrl', 'http://localhost:5000');
   const enableStreaming: boolean = config.get<boolean>('enableStreaming', true);
+  const authMode: string = config.get<string>('authMode', 'disabled');
 
   outputChannel.appendLine(`  backendUrl: ${backendUrl}`);
   outputChannel.appendLine(`  enableStreaming: ${enableStreaming}`);
+  outputChannel.appendLine(`  authMode: ${authMode}`);
 
   // ── 2. Create shared HTTP client ─────────────────────────────────
-  const client = new AgentClient({ baseUrl: backendUrl });
+  // Acquire a bearer token if entra-id auth is configured.
+  const bearerToken = await acquireVsCodeToken();
+  const client = new AgentClient({ baseUrl: backendUrl, bearerToken });
 
   // ── 3. Register chat participants ────────────────────────────────
   const fhirParticipant = vscode.chat.createChatParticipant(

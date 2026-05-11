@@ -1,0 +1,33 @@
+# azure.yaml – azd project definition for Expert Agents
+# Run: azd up
+# Docs: https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/azd-schema
+
+name: expert-agents
+metadata:
+  template: expert-agents@0.0.1
+
+# Infrastructure
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+# Services deployed as container images
+services:
+  agenthost:
+    project: src/AgentHost
+    host: containerapp
+    language: dotnet
+    docker:
+      path: src/AgentHost/Dockerfile
+      context: .
+    env:
+      ASPNETCORE_ENVIRONMENT: Production
+
+  webchat:
+    project: web-chat
+    host: containerapp
+    language: js
+    docker:
+      path: web-chat/Dockerfile
+      context: web-chat

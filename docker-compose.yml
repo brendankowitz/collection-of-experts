@@ -1,27 +1,60 @@
-version: '3.8'
+﻿version: '3.8'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Expert Agents – Full local stack
+#
+# Usage:
+#   cp .env.example .env   # fill in optional secrets
+#   docker compose up --build
+#
+# Endpoints:
+#   Web chat:  http://localhost:5173
+#   API:       http://localhost:5000
+#   Swagger:   http://localhost:5000/swagger
+#   Health:    http://localhost:5000/health
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
+
   agenthost:
     build:
       context: .
       dockerfile: src/AgentHost/Dockerfile
     ports:
-      - "5000:5000"
-      - "5001:5001"
+      - "5000:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:5000
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Postgres=Host=postgres;Database=experts;Username=experts;Password=${POSTGRES_PASSWORD:-experts}
       - Indexing__Qdrant__Host=qdrant
       - Indexing__Qdrant__GrpcPort=6334
-      - Indexing__Postgres__ConnectionString=Host=postgres;Database=experts;Username=experts;Password=experts
+      - Indexing__Qdrant__HttpPort=6333
       - Indexing__RepoCacheDir=/var/cache/agenthost/repos
+      - SignalR__Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD:-},abortConnect=false
+      - AzureOpenAI__Endpoint=${AZURE_OPENAI_ENDPOINT:-}
+      - AzureOpenAI__ApiKey=${AZURE_OPENAI_API_KEY:-}
+      - AzureOpenAI__DeploymentName=${AZURE_OPENAI_DEPLOYMENT_NAME:-gpt-4o}
+      - Anthropic__ApiKey=${ANTHROPIC_API_KEY:-}
+      - Authentication__Mode=${AUTH_MODE:-Disabled}
+      - Authentication__EntraId__TenantId=${ENTRA_TENANT_ID:-}
+      - Authentication__EntraId__ClientId=${ENTRA_CLIENT_ID:-}
+      - Authentication__EntraId__Audience=${ENTRA_AUDIENCE:-}
+      - ApplicationInsights__ConnectionString=${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
     volumes:
       - clone-cache:/var/cache/agenthost/repos
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - expert-agents
 
@@ -30,11 +63,19 @@ services:
       context: ./web-chat
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "5173:80"
     environment:
-      - VITE_API_URL=http://localhost:5000
+      - VITE_API_BASE_URL=http://localhost:5000
+      - VITE_AUTH_MODE=${AUTH_MODE_WEB:-disabled}
     depends_on:
-      - agenthost
+      agenthost:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - expert-agents
 
@@ -45,6 +86,12 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - expert-agents
 
@@ -54,7 +101,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: experts
-      POSTGRES_PASSWORD: experts
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-experts}
       POSTGRES_DB: experts
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -63,6 +110,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
+    networks:
+      - expert-agents
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+      --save 60 1
+      --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - expert-agents
 
@@ -70,6 +138,7 @@ volumes:
   qdrant_storage:
   postgres_data:
   clone-cache:
+  redis_data:
 
 networks:
   expert-agents:

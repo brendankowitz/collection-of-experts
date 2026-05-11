@@ -4,6 +4,7 @@ using AgentHost.Hubs;
 using AgentHost.Indexing;
 using AgentHost.Llm;
 using AgentHost.MCP;
+using AgentHost.Orchestration;
 using AgentHost.Repositories;
 using AgentHost.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -39,6 +40,11 @@ public partial class Program
 
         services.AddSingleton<AgentRegistry>();
         services.AddHostedService<DynamicAgentRegistry>();
+
+        // Phase 5: A2A orchestration
+        services.Configure<OrchestrationOptions>(configuration.GetSection("Orchestration"));
+        services.AddA2AClient();
+        services.AddSingleton<IExpertAgent, CoordinatorAgent>();
 
         // -- Authentication & Authorization (Phase 7) --
         ConfigureAuth(services, configuration);

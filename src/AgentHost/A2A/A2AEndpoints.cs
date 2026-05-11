@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentHost.Agents;
+using AgentHost.Orchestration;
 using AgentHost.Repositories.Memory;
 using AgentHost.Repositories.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace AgentHost.A2A;
 
@@ -23,7 +25,7 @@ public static class A2AEndpoints
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.AgentCard");
-            var agentId = ResolveAgentId(ctx);
+            var agentId = ResolveAgentCardId(ctx);
             var card = cardProvider.GetCard(agentId);
 
             if (card is null)
@@ -49,14 +51,28 @@ public static class A2AEndpoints
             IAgentTaskStore taskStore,
             IAgentMemory agentMemory,
             AgentRegistry registry,
+            IOptions<OrchestrationOptions> opts,
+            HttpContext ctx,
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.SendTask");
-            logger.LogInformation("Received task send request for agent {AgentId}", request.AgentId);
 
-            var agent = registry.GetAgent(request.AgentId ?? "");
+            using var ctxScope = ApplyCallContextFromHeaders(ctx.Request.Headers);
+            var effectiveAgentId = ResolveEffectiveAgentId(request.AgentId, opts.Value);
+            logger.LogInformation("[{TraceId}] Received task send → agent={AgentId} depth={Depth}",
+                A2ACallContext.Current?.TraceId, effectiveAgentId, A2ACallContext.Current?.Depth);
+
+            if (A2ACallContext.Current is { } callCtx)
+            {
+                if (callCtx.Depth >= opts.Value.MaxCallDepth)
+                    return Results.Json(new { error = "A2A_DEPTH_EXCEEDED", depth = callCtx.Depth }, statusCode: 429);
+                if (callCtx.Path.Contains(effectiveAgentId, StringComparer.OrdinalIgnoreCase))
+                    return Results.Json(new { error = "A2A_CYCLE_DETECTED", path = callCtx.Path }, statusCode: 409);
+            }
+
+            var agent = registry.GetAgent(effectiveAgentId);
             if (agent is null)
-                return Results.BadRequest(new { error = $"Agent '{request.AgentId}' not found." });
+                return Results.BadRequest(new { error = $"Agent '{effectiveAgentId}' not found." });
 
             var sessionId = request.SessionId ?? Guid.NewGuid().ToString("N");
             var userText = request.Message.Parts
@@ -105,18 +121,39 @@ public static class A2AEndpoints
             IAgentTaskStore taskStore,
             IAgentMemory agentMemory,
             AgentRegistry registry,
+            IOptions<OrchestrationOptions> opts,
             HttpContext ctx,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("A2A.SendSubscribe");
-            logger.LogInformation("Received task subscribe request for agent {AgentId}", request.AgentId);
 
-            var agent = registry.GetAgent(request.AgentId ?? "");
+            using var ctxScope = ApplyCallContextFromHeaders(ctx.Request.Headers);
+            var effectiveAgentId = ResolveEffectiveAgentId(request.AgentId, opts.Value);
+            logger.LogInformation("[{TraceId}] Received subscribe → agent={AgentId} depth={Depth}",
+                A2ACallContext.Current?.TraceId, effectiveAgentId, A2ACallContext.Current?.Depth);
+
+            if (A2ACallContext.Current is { } callCtx)
+            {
+                if (callCtx.Depth >= opts.Value.MaxCallDepth)
+                {
+                    ctx.Response.StatusCode = 429;
+                    await ctx.Response.WriteAsJsonAsync(new { error = "A2A_DEPTH_EXCEEDED", depth = callCtx.Depth }, ct);
+                    return;
+                }
+                if (callCtx.Path.Contains(effectiveAgentId, StringComparer.OrdinalIgnoreCase))
+                {
+                    ctx.Response.StatusCode = 409;
+                    await ctx.Response.WriteAsJsonAsync(new { error = "A2A_CYCLE_DETECTED", path = callCtx.Path }, ct);
+                    return;
+                }
+            }
+
+            var agent = registry.GetAgent(effectiveAgentId);
             if (agent is null)
             {
                 ctx.Response.StatusCode = 400;
-                await ctx.Response.WriteAsJsonAsync(new { error = $"Agent '{request.AgentId}' not found." });
+                await ctx.Response.WriteAsJsonAsync(new { error = $"Agent '{effectiveAgentId}' not found." });
                 return;
             }
 
@@ -260,8 +297,42 @@ public static class A2AEndpoints
         ErrorMessage = r.ErrorMessage
     };
 
-    private static string ResolveAgentId(HttpContext ctx)
+    /// <summary>
+    /// Determines the agent ID to use for task routing.
+    /// Defaults to "coordinator" when no explicit agent is specified and coordinator is enabled.
+    /// </summary>
+    internal static string ResolveEffectiveAgentId(string? requestedAgentId, OrchestrationOptions opts)
     {
+        if (!string.IsNullOrWhiteSpace(requestedAgentId) &&
+            !requestedAgentId.Equals("coordinator", StringComparison.OrdinalIgnoreCase))
+            return requestedAgentId;
+
+        if (opts.EnableCoordinator)
+            return "coordinator";
+
+        return requestedAgentId ?? "coordinator";
+    }
+
+    /// <summary>Parses incoming A2A call-context headers and pushes them as the current <see cref="A2ACallContext"/>.</summary>
+    internal static IDisposable ApplyCallContextFromHeaders(IHeaderDictionary headers)
+    {
+        var traceId = headers.TryGetValue("X-Trace-Id", out var t) ? t.ToString() : null;
+        var depth = headers.TryGetValue("X-Call-Depth", out var d) ? d.ToString() : null;
+        var path = headers.TryGetValue("X-Call-Path", out var p) ? p.ToString() : null;
+
+        if (traceId is null && depth is null && path is null)
+            return Disposable.Empty;
+
+        var ctx = A2ACallContext.FromHeaders(traceId, depth, path);
+        return A2ACallContext.SetCurrent(ctx);
+    }
+
+    private static string ResolveAgentCardId(HttpContext ctx)
+    {
+        if (ctx.Request.Query.TryGetValue("agent", out var agentParam) &&
+            !string.IsNullOrWhiteSpace(agentParam))
+            return agentParam.ToString();
+
         var host = ctx.Request.Host.ToString();
         return host switch
         {
@@ -269,7 +340,7 @@ public static class A2AEndpoints
             var h when h.Contains("5002") => "healthcare-components-expert",
             _ => ctx.Request.Query.TryGetValue("agentId", out var agentId)
                 ? agentId.ToString()
-                : "fhir-server-expert"
+                : "coordinator"
         };
     }
 
@@ -278,5 +349,11 @@ public static class A2AEndpoints
         var json = JsonSerializer.Serialize(evt);
         await writer.WriteAsync($"data: {json}\n\n".AsMemory(), ct);
         await writer.FlushAsync(ct);
+    }
+
+    private static class Disposable
+    {
+        public static readonly IDisposable Empty = new NullDisposable();
+        private sealed class NullDisposable : IDisposable { public void Dispose() { } }
     }
 }

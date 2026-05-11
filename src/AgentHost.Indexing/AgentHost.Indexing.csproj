@@ -12,7 +12,7 @@
     <PackageReference Include="Qdrant.Client" Version="1.12.0" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Dapper" Version="2.1.66" />
-    <PackageReference Include="LibGit2Sharp" Version="0.30.0" />
+    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />

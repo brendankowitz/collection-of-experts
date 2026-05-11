@@ -1,4 +1,4 @@
-using AgentHost.A2A;
+﻿using AgentHost.A2A;
 using AgentHost.Agents;
 using AgentHost.Hubs;
 using AgentHost.Indexing;
@@ -6,6 +6,8 @@ using AgentHost.Llm;
 using AgentHost.MCP;
 using AgentHost.Repositories;
 using AgentHost.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Identity.Web;
 using ModelContextProtocol.Protocol;
 
 namespace AgentHost;
@@ -24,7 +26,7 @@ public partial class Program
         app.Run();
     }
 
-    private static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    internal static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<AgentCardProvider>();
         services.AddAgentHostPersistence(configuration);
@@ -38,11 +40,8 @@ public partial class Program
         services.AddSingleton<AgentRegistry>();
         services.AddHostedService<DynamicAgentRegistry>();
 
-        services.AddAuthentication();
-        services.AddAuthorization(options =>
-        {
-            options.AddPolicy("RepositoryAdmin", policy => policy.RequireAssertion(_ => true));
-        });
+        // -- Authentication & Authorization (Phase 7) --
+        ConfigureAuth(services, configuration);
 
         services.AddMcpServer(options =>
         {
@@ -55,7 +54,8 @@ public partial class Program
         .WithHttpTransport(o => o.Stateless = true)
         .WithTools<ExpertAgentsMcpTools>();
 
-        services.AddSignalR(options =>
+        // -- SignalR with optional Redis backplane (Phase 7) --
+        var signalR = services.AddSignalR(options =>
         {
             options.EnableDetailedErrors = true;
             options.MaximumReceiveMessageSize = 1024 * 1024;
@@ -64,6 +64,25 @@ public partial class Program
         {
             options.PayloadSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         });
+
+        var redisConnectionString = configuration["SignalR:Redis:ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(redisConnectionString))
+        {
+            signalR.AddStackExchangeRedis(redisConnectionString, o =>
+            {
+                o.Configuration.AbortOnConnectFail = false;
+            });
+        }
+
+        // -- Application Insights (Phase 7) --
+        var appInsightsConnectionString = configuration["ApplicationInsights:ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
+        {
+            services.AddApplicationInsightsTelemetry(options =>
+            {
+                options.ConnectionString = appInsightsConnectionString;
+            });
+        }
 
         services.AddControllers();
         services.AddEndpointsApiExplorer();
@@ -103,6 +122,37 @@ public partial class Program
         });
     }
 
+    internal static void ConfigureAuth(IServiceCollection services, IConfiguration configuration)
+    {
+        var authMode = configuration["Authentication:Mode"] ?? "Disabled";
+
+        if (string.Equals(authMode, "EntraId", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddMicrosoftIdentityWebApi(configuration.GetSection("Authentication:EntraId"));
+
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy("RepositoryAdmin", policy => policy
+                    .RequireAuthenticatedUser()
+                    .RequireRole("Repositories.Admin"));
+
+                options.AddPolicy("ChatUser", policy => policy
+                    .RequireAuthenticatedUser());
+            });
+        }
+        else
+        {
+            // Disabled mode: allow anonymous for all policies
+            services.AddAuthentication();
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy("RepositoryAdmin", policy => policy.RequireAssertion(_ => true));
+                options.AddPolicy("ChatUser", policy => policy.RequireAssertion(_ => true));
+            });
+        }
+    }
+
     private static void ConfigureMiddleware(WebApplication app)
     {
         if (app.Environment.IsDevelopment())
@@ -127,10 +177,17 @@ public partial class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
+        var authMode = app.Configuration["Authentication:Mode"] ?? "Disabled";
+        var isEntraId = string.Equals(authMode, "EntraId", StringComparison.OrdinalIgnoreCase);
+
         app.MapHealthChecks("/health");
         app.MapControllers();
         app.MapA2AEndpoints();
-        app.MapMcp("/mcp");
+
+        // MCP endpoint with optional auth
+        var mcpEndpoint = app.MapMcp("/mcp");
+        if (isEntraId) mcpEndpoint.RequireAuthorization("ChatUser");
+
         app.MapGet("/mcp", async (HttpContext context, CancellationToken ct) =>
         {
             context.Response.ContentType = "text/event-stream";
@@ -148,8 +205,12 @@ public partial class Program
         })
         .WithName("McpSse")
         .ExcludeFromDescription();
+
         app.MapRepositoriesEndpoints();
-        app.MapHub<ChatHub>("/hub/chat");
+
+        // SignalR hub with optional auth
+        var hubEndpoint = app.MapHub<ChatHub>("/hub/chat");
+        if (isEntraId) hubEndpoint.RequireAuthorization("ChatUser");
 
         app.MapGet("/", static () => Results.Redirect("/swagger"));
 

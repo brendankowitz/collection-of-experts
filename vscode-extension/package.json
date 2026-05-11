@@ -52,6 +52,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable streaming responses"
+        },
+        "expertAgents.authMode": {
+          "type": "string",
+          "enum": ["disabled", "entra-id"],
+          "default": "disabled",
+          "description": "Authentication mode. 'disabled' for local/dev; 'entra-id' to sign in via Microsoft account and attach a bearer token to all backend requests."
         }
       }
     }

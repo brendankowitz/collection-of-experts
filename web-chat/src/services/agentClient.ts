@@ -1,4 +1,5 @@
 import { useChatStore, type Agent, type Message } from '../store/chatStore';
+import { authHeaders } from '../lib/authService';
 
 const USE_MOCK = true;
 const API_BASE = '/api';
@@ -135,7 +136,7 @@ class AgentClient {
       return useChatStore.getState().agents;
     }
 
-    const response = await fetch(`${this.baseUrl}/agents`);
+    const response = await fetch(`${this.baseUrl}/agents`, { headers: await authHeaders() });
     if (!response.ok) {
       throw new Error(`Failed to fetch agents: ${response.statusText}`);
     }
@@ -154,6 +155,7 @@ class AgentClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...await authHeaders(),
       },
       body: JSON.stringify({ agentId, message, sessionId }),
     });
@@ -210,7 +212,7 @@ class AgentClient {
       try {
         const response = await fetch('/tasks/sendSubscribe', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...await authHeaders() },
           body: JSON.stringify({
             agentId,
             sessionId,

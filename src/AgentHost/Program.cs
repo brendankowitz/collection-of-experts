@@ -6,6 +6,7 @@ using AgentHost.Llm;
 using AgentHost.MCP;
 using AgentHost.Repositories;
 using AgentHost.Services;
+using ModelContextProtocol.Protocol;
 
 namespace AgentHost;
 
@@ -42,6 +43,17 @@ public partial class Program
         {
             options.AddPolicy("RepositoryAdmin", policy => policy.RequireAssertion(_ => true));
         });
+
+        services.AddMcpServer(options =>
+        {
+            options.ServerInfo = new Implementation
+            {
+                Name = "expert-agents",
+                Version = "1.0.0"
+            };
+        })
+        .WithHttpTransport(o => o.Stateless = true)
+        .WithTools<ExpertAgentsMcpTools>();
 
         services.AddSignalR(options =>
         {
@@ -118,18 +130,31 @@ public partial class Program
         app.MapHealthChecks("/health");
         app.MapControllers();
         app.MapA2AEndpoints();
-        app.MapMcpEndpoints();
+        app.MapMcp("/mcp");
         app.MapRepositoriesEndpoints();
         app.MapHub<ChatHub>("/hub/chat");
 
         app.MapGet("/", static () => Results.Redirect("/swagger"));
+
+        app.MapGet("/mcp/health", (IServiceProvider sp) =>
+        {
+            const int toolCount = 9;
+            return Results.Ok(new
+            {
+                status = "ok",
+                protocolVersion = "2024-11-05",
+                tools = toolCount
+            });
+        })
+        .WithName("McpHealth")
+        .ExcludeFromDescription();
 
         app.MapGet("/api/info", (AgentRegistry registry) => Results.Ok(new
         {
             name = "Expert Agents API",
             version = "1.0.0",
             agents = registry.GetAllAgents().Select(agent => new { id = agent.AgentId, name = agent.Name, url = "http://localhost:5000" }),
-            protocols = new[] { "A2A (JSON-RPC 2.0)", "SignalR", "MCP" },
+            protocols = new[] { "A2A (JSON-RPC 2.0)", "SignalR", "MCP (JSON-RPC 2.0 / Streamable HTTP)" },
             endpoints = new
             {
                 agentCard = "/.well-known/agent-card.json",
@@ -138,7 +163,8 @@ public partial class Program
                 getTask = "/tasks/{taskId}",
                 cancelTask = "/tasks/{taskId}/cancel",
                 chatHub = "/hub/chat",
-                mcpTools = "/mcp/tools",
+                mcpJsonRpc = "/mcp",
+                mcpHealth = "/mcp/health",
                 repositories = "/api/repositories",
                 health = "/health",
                 swagger = "/swagger"

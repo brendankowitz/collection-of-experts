@@ -1,257 +1,127 @@
+using System.ComponentModel;
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using AgentHost.A2A;
 using AgentHost.Agents;
+using AgentHost.Repositories.Registry;
 using AgentHost.Services;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Server;
 
 namespace AgentHost.MCP;
 
-/// <summary>
-/// MCP (Model Context Protocol) compatible tool server.
-/// Exposes code-search and file-content tools that can be consumed
-/// by MCP clients such as Claude Desktop or other AI assistants.
-/// </summary>
-public static class CodeMcpServer
+[McpServerToolType]
+public sealed class ExpertAgentsMcpTools(
+    MockCodeIndexService codeIndex,
+    AgentRegistry agentRegistry,
+    AgentTaskStore taskStore,
+    IServiceProvider services,
+    ILogger<ExpertAgentsMcpTools> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    /// <summary>
-    /// Maps MCP tool endpoints onto the ASP.NET Core route table.
-    /// </summary>
-    public static IEndpointRouteBuilder MapMcpEndpoints(this IEndpointRouteBuilder app)
+    [McpServerTool(Name = "search_code")]
+    [Description("Search indexed code for files matching a query.")]
+    public string SearchCode(
+        [Description("Repository identifier such as 'fhir-server' or 'healthcare-shared-components'.")] string repo,
+        [Description("Free-text query to search for.")] string query,
+        [Description("Maximum number of results to return. Defaults to 5.")] int topK = 5)
     {
-        // MCP protocol endpoint (list tools)
-        app.MapGet("/mcp/tools", (ILoggerFactory loggerFactory) =>
+        if (string.IsNullOrWhiteSpace(repo))
         {
-            var logger = loggerFactory.CreateLogger("MCP");
-            logger.LogInformation("Listing MCP tools");
+            return Error("Parameter 'repo' is required.");
+        }
 
-            var tools = new object[]
-            {
-                new
-                {
-                    name = "search_code",
-                    description = "Search a repository for files matching a query",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = new[] { "repo", "query" },
-                        properties = new
-                        {
-                            repo = new { type = "string", description = "Repository name: 'fhir-server' or 'healthcare-shared-components'" },
-                            query = new { type = "string", description = "Search query (keywords)" },
-                            topK = new { type = "integer", description = "Maximum results to return (default 5)" }
-                        }
-                    }
-                },
-                new
-                {
-                    name = "get_file_content",
-                    description = "Retrieve the full content of a file from a repository",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = new[] { "repo", "filePath" },
-                        properties = new
-                        {
-                            repo = new { type = "string", description = "Repository name" },
-                            filePath = new { type = "string", description = "File path within the repository" }
-                        }
-                    }
-                },
-                new
-                {
-                    name = "explain_architecture",
-                    description = "Get an architecture overview of a system component",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = new[] { "component" },
-                        properties = new
-                        {
-                            component = new
-                            {
-                                type = "string",
-                                description = "Component name: 'fhir-search', 'fhir-export', 'fhir-auth', 'sql-wrapper', 'blob-client', 'mediator', 'health-checks', 'change-feed'"
-                            }
-                        }
-                    }
-                },
-                new
-                {
-                    name = "create_pr",
-                    description = "Get guidance for creating a pull request",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = new[] { "repo" },
-                        properties = new
-                        {
-                            repo = new { type = "string", description = "Repository name" },
-                            title = new { type = "string", description = "PR title" },
-                            description = new { type = "string", description = "PR description" }
-                        }
-                    }
-                },
-                new
-                {
-                    name = "list_agents",
-                    description = "List all available expert agents",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = Array.Empty<string>(),
-                        properties = new { }
-                    }
-                },
-                new
-                {
-                    name = "ask_agent",
-                    description = "Send a question to a specific expert agent",
-                    parameters = new
-                    {
-                        type = "object",
-                        required = new[] { "agentId", "message" },
-                        properties = new
-                        {
-                            agentId = new { type = "string", description = "Agent identifier (e.g., 'fhir-server-expert')" },
-                            message = new { type = "string", description = "Question or command for the agent" }
-                        }
-                    }
-                }
-            };
-
-            return Results.Ok(new { tools });
-        })
-        .WithName("McpListTools")
-        .WithOpenApi(operation =>
+        if (string.IsNullOrWhiteSpace(query))
         {
-            operation.Summary = "List available MCP tools";
-            operation.Description = "Returns metadata about all tools exposed by this MCP server.";
-            return operation;
-        });
+            return Error("Parameter 'query' is required.");
+        }
 
-        // MCP tool execution endpoint
-        app.MapPost("/mcp/tools/call", async (
-            [FromBody] JsonObject request,
-            MockCodeIndexService codeIndex,
-            AgentRegistry registry,
-            IServiceProvider services,
-            ILoggerFactory loggerFactory) =>
-        {
-            var logger = loggerFactory.CreateLogger("MCP");
-            var toolName = request["name"]?.GetValue<string>() ?? "";
-            var arguments = request["arguments"] as JsonObject ?? new JsonObject();
-
-            logger.LogInformation("MCP tool called: {ToolName}", toolName);
-
-            try
-            {
-                var result = toolName switch
-                {
-                    "search_code" => await HandleSearchCodeAsync(arguments, codeIndex),
-                    "get_file_content" => await HandleGetFileContentAsync(arguments, codeIndex),
-                    "explain_architecture" => await HandleExplainArchitectureAsync(arguments, registry),
-                    "create_pr" => await HandleCreatePrAsync(arguments),
-                    "list_agents" => await HandleListAgentsAsync(registry),
-                    "ask_agent" => await HandleAskAgentAsync(arguments, registry),
-                    _ => new { error = $"Unknown tool: '{toolName}'" }
-                };
-
-                return Results.Ok(new { result });
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "MCP tool {ToolName} failed", toolName);
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        })
-        .WithName("McpCallTool")
-        .WithOpenApi(operation =>
-        {
-            operation.Summary = "Execute an MCP tool";
-            operation.Description = "Invokes the specified tool with the provided arguments.";
-            return operation;
-        });
-
-        return app;
-    }
-
-    // ─── Tool Handlers ───────────────────────────────────────────────────────
-
-    private static Task<object> HandleSearchCodeAsync(JsonObject args, MockCodeIndexService codeIndex)
-    {
-        var repo = args["repo"]?.GetValue<string>() ?? "fhir-server";
-        var query = args["query"]?.GetValue<string>() ?? "";
-        var topK = args["topK"]?.GetValue<int>() ?? 5;
-
+        var limit = topK <= 0 ? 5 : Math.Min(topK, 25);
         var results = codeIndex.Search(repo, query);
-        var limited = results.Take(topK).Select(r => new
-        {
-            filePath = r.FilePath,
-            snippet = r.Snippet.Length > 500 ? r.Snippet[..500] + "..." : r.Snippet
-        }).ToList();
+        var files = results
+            .Take(limit)
+            .Select(result => new
+            {
+                filePath = result.FilePath,
+                snippet = result.Snippet.Length > 500 ? result.Snippet[..500] + "..." : result.Snippet
+            })
+            .ToList();
 
-        return Task.FromResult<object>(new
+        return Serialize(new
         {
             repo,
             query,
             totalResults = results.Count,
-            returned = limited.Count,
-            files = limited
+            returned = files.Count,
+            files
         });
     }
 
-    private static Task<object> HandleGetFileContentAsync(JsonObject args, MockCodeIndexService codeIndex)
+    [McpServerTool(Name = "get_file_content")]
+    [Description("Retrieve the full content of a file from a repository.")]
+    public string GetFileContent(
+        [Description("Repository identifier.")] string repo,
+        [Description("Path to the file within the repository.")] string filePath)
     {
-        var repo = args["repo"]?.GetValue<string>() ?? "";
-        var filePath = args["filePath"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(repo))
+        {
+            return Error("Parameter 'repo' is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return Error("Parameter 'filePath' is required.");
+        }
 
         var content = codeIndex.GetFileContent(repo, filePath);
-
-        if (content is null)
-            return Task.FromResult<object>(new { repo, filePath, found = false, error = "File not found" });
-
-        return Task.FromResult<object>(new
-        {
-            repo,
-            filePath,
-            found = true,
-            content
-        });
+        return Serialize(content is null
+            ? new { repo, filePath, found = false, error = "File not found" }
+            : new { repo, filePath, found = true, content });
     }
 
-    private static async Task<object> HandleExplainArchitectureAsync(JsonObject args, AgentRegistry registry)
+    [McpServerTool(Name = "explain_architecture")]
+    [Description("Route an architecture question to the most relevant expert agent.")]
+    public async Task<string> ExplainArchitecture(
+        [Description("Component or subsystem to explain.")] string component)
     {
-        var component = args["component"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(component))
+        {
+            return Error("Parameter 'component' is required.");
+        }
 
-        // Route to the appropriate agent based on component
-        var message = $"Explain the architecture of {component}";
-        var agent = registry.RouteToAgent(message);
-        var response = await agent.ProcessMessageAsync(message, Guid.NewGuid().ToString("N"));
+        var prompt = $"Explain the architecture of {component}";
+        var agent = agentRegistry.RouteToAgent(prompt);
+        var sessionId = Guid.NewGuid().ToString("N");
+        var response = await agent.ProcessMessageAsync(prompt, sessionId);
 
-        return new
+        return Serialize(new
         {
             component,
+            threadId = sessionId,
             agentId = agent.AgentId,
             agentName = agent.Name,
             explanation = response
-        };
+        });
     }
 
-    private static Task<object> HandleCreatePrAsync(JsonObject args)
+    [McpServerTool(Name = "create_pr")]
+    [Description("Return repository-specific pull request guidance.")]
+    public string CreatePr(
+        [Description("Repository identifier.")] string repo,
+        [Description("Proposed pull request title.")] string title = "Untitled PR",
+        [Description("Proposed pull request description.")] string description = "")
     {
-        var repo = args["repo"]?.GetValue<string>() ?? "";
-        var title = args["title"]?.GetValue<string>() ?? "Untitled PR";
-        var description = args["description"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(repo))
+        {
+            return Error("Parameter 'repo' is required.");
+        }
 
         var guidance = repo.ToLowerInvariant() switch
         {
-            var r when r.Contains("fhir") => """
+            var value when value.Contains("fhir", StringComparison.Ordinal) => """
                 ## PR Guidance for microsoft/fhir-server
 
                 ### Branch
@@ -275,7 +145,7 @@ public static class CodeMcpServer
                 ### CI Matrix
                 Windows + Linux, SQL Server + Cosmos DB
                 """,
-            var r when r.Contains("healthcare") || r.Contains("shared") => """
+            var value when value.Contains("healthcare", StringComparison.Ordinal) || value.Contains("shared", StringComparison.Ordinal) => """
                 ## PR Guidance for microsoft/healthcare-shared-components
 
                 ### Branch
@@ -308,7 +178,7 @@ public static class CodeMcpServer
                 """
         };
 
-        return Task.FromResult<object>(new
+        return Serialize(new
         {
             repo,
             title,
@@ -318,35 +188,236 @@ public static class CodeMcpServer
         });
     }
 
-    private static Task<object> HandleListAgentsAsync(AgentRegistry registry)
+    [McpServerTool(Name = "list_agents")]
+    [Description("List all available expert agents.")]
+    public string ListAgents()
     {
-        var agents = registry.GetAllAgents().Select(a => new
-        {
-            a.AgentId,
-            a.Name,
-            skills = a.GetAgentCard().Skills.Select(s => new { s.Id, s.Name, s.Description }).ToList()
-        }).ToList();
+        var agents = agentRegistry.GetAllAgents()
+            .Select(agent => new
+            {
+                agentId = agent.AgentId,
+                name = agent.Name,
+                skills = agent.GetAgentCard().Skills
+                    .Select(skill => new { skill.Id, skill.Name, skill.Description })
+                    .ToList()
+            })
+            .ToList();
 
-        return Task.FromResult<object>(new { agents, count = agents.Count });
+        return Serialize(new { agents, count = agents.Count });
     }
 
-    private static async Task<object> HandleAskAgentAsync(JsonObject args, AgentRegistry registry)
+    [McpServerTool(Name = "ask_agent")]
+    [Description("Send a question to a specific expert agent.")]
+    public async Task<string> AskAgent(
+        [Description("Agent identifier, for example 'fhir-server-expert'.")] string agentId,
+        [Description("Question or instruction for the agent.")] string message)
     {
-        var agentId = args["agentId"]?.GetValue<string>() ?? "";
-        var message = args["message"]?.GetValue<string>() ?? "";
-
-        var agent = registry.GetAgent(agentId);
-        if (agent is null)
-            return new { error = $"Agent '{agentId}' not found" };
-
-        var response = await agent.ProcessMessageAsync(message, Guid.NewGuid().ToString("N"));
-
-        return new
+        if (string.IsNullOrWhiteSpace(agentId))
         {
+            return Error("Parameter 'agentId' is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return Error("Parameter 'message' is required.");
+        }
+
+        var agent = agentRegistry.GetAgent(agentId);
+        if (agent is null)
+        {
+            return Error($"Agent '{agentId}' not found.");
+        }
+
+        var thread = await RunAgentConversationAsync(agent, message);
+        return Serialize(new
+        {
+            threadId = thread.ThreadId,
             agentId = agent.AgentId,
             agentName = agent.Name,
             message,
-            response
-        };
+            response = thread.Response
+        });
     }
+
+    [McpServerTool(Name = "list_repositories")]
+    [Description("List repositories managed by the platform.")]
+    public string ListRepositories()
+    {
+        var registry = services.GetService<IRepositoryRegistry>();
+        var repositories = registry?.GetAll().ToList() ?? SeedRepositories();
+
+        return Serialize(new
+        {
+            repositories,
+            count = repositories.Count,
+            source = registry is null ? "seed" : "registry"
+        });
+    }
+
+    [McpServerTool(Name = "ask_repo_expert")]
+    [Description("Ask the expert agent that owns a repository.")]
+    public async Task<string> AskRepoExpert(
+        [Description("Repository identifier.")] string repoId,
+        [Description("Question for the repository expert.")] string question,
+        [Description("Optional prior thread identifier to continue.")] string? threadId = null)
+    {
+        if (string.IsNullOrWhiteSpace(repoId))
+        {
+            return Error("Parameter 'repoId' is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return Error("Parameter 'question' is required.");
+        }
+
+        var agent = FindAgentForRepository(repoId, question);
+        var thread = await RunAgentConversationAsync(agent, question, threadId);
+
+        return Serialize(new
+        {
+            repoId,
+            threadId = thread.ThreadId,
+            createdNewThread = thread.CreatedNewThread,
+            agentId = agent.AgentId,
+            agentName = agent.Name,
+            question,
+            response = thread.Response
+        });
+    }
+
+    [McpServerTool(Name = "submit_followup")]
+    [Description("Submit a follow-up message to an existing MCP conversation thread.")]
+    public async Task<string> SubmitFollowup(
+        [Description("Thread identifier returned by ask_agent or ask_repo_expert.")] string threadId,
+        [Description("Follow-up message to send.")] string message)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return Error("Parameter 'threadId' is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return Error("Parameter 'message' is required.");
+        }
+
+        var existingTask = taskStore.GetTask(threadId);
+        var agent = existingTask is not null
+            ? agentRegistry.GetAgent(existingTask.AgentId ?? string.Empty)
+            : null;
+
+        agent ??= agentRegistry.RouteToAgent(message);
+        var thread = await RunAgentConversationAsync(agent, message, existingTask?.Id ?? threadId);
+
+        return Serialize(new
+        {
+            threadId = thread.ThreadId,
+            existingThread = existingTask is not null,
+            createdNewThread = thread.CreatedNewThread,
+            agentId = agent.AgentId,
+            agentName = agent.Name,
+            message,
+            response = thread.Response
+        });
+    }
+
+    private static string Serialize(object result)
+        => JsonSerializer.Serialize(result, JsonOptions);
+
+    private static string Error(string message)
+        => Serialize(new { error = message });
+
+    private static List<RepositoryInfo> SeedRepositories() =>
+    [
+        new RepositoryInfo(
+            Id: "fhir-server",
+            Name: "Microsoft FHIR Server",
+            Description: "Enterprise FHIR server implementation with SQL Server and Cosmos DB backends.",
+            Url: "https://github.com/microsoft/fhir-server",
+            Language: "C#"),
+        new RepositoryInfo(
+            Id: "healthcare-shared-components",
+            Name: "Healthcare Shared Components",
+            Description: "Shared infrastructure and healthcare utilities used across Microsoft healthcare services.",
+            Url: "https://github.com/microsoft/healthcare-shared-components",
+            Language: "C#")
+    ];
+
+    private IExpertAgent FindAgentForRepository(string repoId, string question)
+    {
+        var directMatch = agentRegistry.GetAllAgents()
+            .FirstOrDefault(agent => agent.AgentId.Contains(repoId, StringComparison.OrdinalIgnoreCase));
+        if (directMatch is not null)
+        {
+            return directMatch;
+        }
+
+        if (repoId.Contains("healthcare", StringComparison.OrdinalIgnoreCase) ||
+            repoId.Contains("shared", StringComparison.OrdinalIgnoreCase))
+        {
+            var healthcareAgent = agentRegistry.GetAgent("healthcare-components-expert");
+            if (healthcareAgent is not null)
+            {
+                return healthcareAgent;
+            }
+        }
+
+        if (repoId.Contains("fhir", StringComparison.OrdinalIgnoreCase))
+        {
+            var fhirAgent = agentRegistry.GetAgent("fhir-server-expert");
+            if (fhirAgent is not null)
+            {
+                return fhirAgent;
+            }
+        }
+
+        return agentRegistry.RouteToAgent(question);
+    }
+
+    private async Task<ConversationResult> RunAgentConversationAsync(IExpertAgent agent, string message, string? threadId = null)
+    {
+        var record = string.IsNullOrWhiteSpace(threadId) ? null : taskStore.GetTask(threadId);
+        var createdNewThread = record is null;
+        var sessionId = record?.SessionId ?? Guid.NewGuid().ToString("N");
+
+        if (record is null)
+        {
+            record = taskStore.CreateTask(sessionId, agent.AgentId, new Message
+            {
+                Role = "user",
+                Parts = [new TextPart { Text = message }]
+            });
+        }
+        else
+        {
+            if (!string.Equals(record.AgentId, agent.AgentId, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation(
+                    "Thread {ThreadId} was previously associated with {ExistingAgentId} but is being handled by {AgentId}.",
+                    record.Id,
+                    record.AgentId,
+                    agent.AgentId);
+            }
+
+            record.Messages.Add(new Message
+            {
+                Role = "user",
+                Parts = [new TextPart { Text = message }]
+            });
+            taskStore.UpdateTask(record.Id, AgentHost.A2A.TaskStatus.Working);
+        }
+
+        taskStore.UpdateTask(record.Id, AgentHost.A2A.TaskStatus.Working);
+        var response = await agent.ProcessMessageAsync(message, sessionId);
+        taskStore.CompleteTask(record.Id, new Message
+        {
+            Role = "agent",
+            Parts = [new TextPart { Text = response }]
+        });
+
+        return new ConversationResult(record.Id, createdNewThread, response);
+    }
+
+    private sealed record ConversationResult(string ThreadId, bool CreatedNewThread, string Response);
 }
